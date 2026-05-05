@@ -19,6 +19,7 @@ const Color color_polyline2 = Color(0xffff7070);
 const Color color_alert = Color(0xFFFAD8D8);
 
 ///Status Color
-const Color color_safe = Color(0xFF4CAF50);
-const Color color_warning = Color(0xFFFFC107);
-const Color color_danger = Color(0xFFF44336);
+const Color color_nf = Color(0xFF109A75);
+const Color color_patv = Color(0xFFFFC107);
+const Color color_nplv = Color(0xFF518EEB);
+const Color color_npatv = Color(0xFFEE3126);

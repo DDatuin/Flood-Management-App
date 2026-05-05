@@ -12,7 +12,7 @@ import 'package:floodmonitoring/widgets/search_popup.dart';
 import 'package:floodmonitoring/widgets/vehicle_info_popup.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:delightful_toast/delight_toast.dart';
 import 'package:delightful_toast/toast/components/toast_card.dart';
 import 'package:vibration/vibration.dart';
@@ -27,17 +27,14 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  late GoogleMapController mapController;
+  late MapLibreMapController mapController;
 
-  // Example location (Antipolo)
-  final LatLng _center = const LatLng(14.6255, 121.1245);
+  // Fallback location (Hipodromo Street, Sta. Mesa, Manila)
+  final LatLng _center = const LatLng(14.600313076666138, 121.00900464618789);
 
-  final Set<Marker> _markers = {};
-
-  final blynk = BlynkService();
-
-  Set<Circle> _circles = {};
-  Set<Polyline> _polylines = {};
+  final List<Symbol> _markers = [];
+  final List<Circle> _circles = [];
+  final List<Line> _polylines = [];
 
   CameraPosition? _lastPosition;
 
@@ -46,44 +43,39 @@ class _MapScreenState extends State<MapScreen> {
   bool showSensorSettingsSheet = false;
   bool showPinConfirmationSheet = false;
   bool showRerouteConfirmationSheet = false;
+  bool showMainSheet = true;
 
   double directionSheetHeight = 0;
   double sensorSheetHeight = 0;
   double sensorSettingsSheetHeight = 0;
   double pinConfirmationSheetHeight = 0;
   double rerouteConfirmationSheetHeight = 0;
+  double mainSheetHeight = 0;
 
   double directionDragOffset = 0;
   double sensorDragOffset = 0;
   double sensorSettingsDragOffset = 0;
   double pinConfirmationDragOffset = 0;
   double rerouteConfirmationDragOffset = 0;
+  double mainDragOffset = 0;
 
   final GlobalKey directionKey = GlobalKey();
   final GlobalKey sensorKey = GlobalKey();
   final GlobalKey sensorSettingsKey = GlobalKey();
   final GlobalKey pinConfirmKey = GlobalKey();
   final GlobalKey rerouteConfirmKey = GlobalKey();
-
-///New Added
-  bool showMainSheet = true;
-  double mainSheetHeight = 0;
-  double mainDragOffset = 0;
   final GlobalKey mainKey = GlobalKey();
-
 
   bool showAllSensors = true;
   bool showSensorCoverage = true;
   bool showCriticalSensors = false;
   bool showSensorLabels = false;
 
-
   bool insideAlertZone = false;
   bool nearAlertZone = false;
   bool normalRouting = true;
 
-
-///New
+  ///New
   String temperature = '';
   String weatherDescription = '';
   String iconCode = '';
@@ -98,32 +90,27 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
 
-      setState(() {
-        selectedVehicle = "";
-      });
+    setState(() {
+      selectedVehicle = "";
+    });
 
-      ///Remove
-      // WidgetsBinding.instance.addPostFrameCallback((_) {
-      //   showVehicleModal();
-      // });
+    fetchDataForAllSensors();
+    _loadCurrentLocation();
+    _updateTime();
+    //_drawAvoidZones();
+    //startLocationUpdates();
 
-      fetchDataForAllSensors();
-      _loadCurrentLocation();
+    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
       _updateTime();
-      //_drawAvoidZones();
-      //startLocationUpdates();
 
-      _timer = Timer.periodic(Duration(seconds: 1), (timer) {
-        _updateTime();
+      _secondsCounter++;
 
-        _secondsCounter++;
-
-        if (_secondsCounter >= fetchIntervalMinutes * 60) {
-          fetchDataForAllSensors();
-          _secondsCounter = 0;
-        }
-      });
-    }
+      if (_secondsCounter >= fetchIntervalMinutes * 60) {
+        fetchDataForAllSensors();
+        _secondsCounter = 0;
+      }
+    });
+  }
 
   Position? _lastUpdatedPosition;
   StreamSubscription<Position>? _positionStream;
@@ -150,9 +137,11 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-
   void getWeather() async {
-    final weather = await loadWeather(currentPosition!.latitude, currentPosition!.longitude);
+    final weather = await loadWeather(
+      currentPosition!.latitude,
+      currentPosition!.longitude,
+    );
 
     if (weather != null) {
       setState(() {
@@ -163,32 +152,32 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-
-
-
   void startLocationUpdates() {
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 1, // minimum distance in meters to trigger update
     );
 
-    _positionStream = Geolocator.getPositionStream(locationSettings: locationSettings)
-        .listen((Position position) {
-      if (_lastUpdatedPosition == null) {
-        _updatePosition(position);
-      } else {
-        double distance = Geolocator.distanceBetween(
-          _lastUpdatedPosition!.latitude,
-          _lastUpdatedPosition!.longitude,
-          position.latitude,
-          position.longitude,
-        );
+    _positionStream =
+        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+          (Position position) {
+            if (_lastUpdatedPosition == null) {
+              _updatePosition(position);
+            } else {
+              double distance = Geolocator.distanceBetween(
+                _lastUpdatedPosition!.latitude,
+                _lastUpdatedPosition!.longitude,
+                position.latitude,
+                position.longitude,
+              );
 
-        if (distance >= 1) { // update every 5 meters
-          _updatePosition(position);
-        }
-      }
-    });
+              if (distance >= 1) {
+                // update every 5 meters
+                _updatePosition(position);
+              }
+            }
+          },
+        );
   }
 
   @override
@@ -198,7 +187,6 @@ class _MapScreenState extends State<MapScreen> {
     super.dispose();
   }
 
-
   void _updatePosition(Position position) {
     setState(() {
       currentPosition = position;
@@ -207,10 +195,7 @@ class _MapScreenState extends State<MapScreen> {
 
     _addUserMarker();
 
-    LatLng userLatLng = LatLng(
-      position.latitude,
-      position.longitude,
-    );
+    LatLng userLatLng = LatLng(position.latitude, position.longitude);
 
     final avoidZones = buildAvoidZonesFromSensors();
     bool inside = isInsideAvoidZone(userLatLng, avoidZones);
@@ -221,7 +206,6 @@ class _MapScreenState extends State<MapScreen> {
     } else {
       print("Safe: Position outside avoid zones.");
     }
-
 
     if (near) {
       print("Position near restricted area!");
@@ -236,7 +220,6 @@ class _MapScreenState extends State<MapScreen> {
 
   bool displayAlert = false;
   Timer? _alertTimer;
-
 
   void startAlert() {
     if (!nearAlertZone) {
@@ -271,10 +254,7 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-
-
-  Map<String, Map<String, dynamic>> sensors = {
-  };
+  Map<String, Map<String, dynamic>> sensors = {};
 
   String? selectedSensorId;
 
@@ -321,8 +301,6 @@ class _MapScreenState extends State<MapScreen> {
     print("All sensors updated");
   }
 
-
-
   void _onMapCreated(GoogleMapController controller) {
     mapController = controller;
 
@@ -331,7 +309,9 @@ class _MapScreenState extends State<MapScreen> {
 
       // Load custom sensor marker image once
       final BitmapDescriptor sensorIcon = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(size: Size(48, 48)), // size of your sensor image
+        const ImageConfiguration(
+          size: Size(48, 48),
+        ), // size of your sensor image
         'assets/images/sensor_location.png',
       );
 
@@ -341,16 +321,16 @@ class _MapScreenState extends State<MapScreen> {
             markerId: MarkerId(id),
             position: sensor['position'],
             icon: sensorIcon, // <-- use custom sensor image
-            infoWindow: showSensorLabels ? InfoWindow(title: id) : InfoWindow.noText,
+            infoWindow: showSensorLabels
+                ? InfoWindow(title: id)
+                : InfoWindow.noText,
             anchor: const Offset(0.5, 0.5),
-              onTap: () => _onSensorTap(id, sensor),
+            onTap: () => _onSensorTap(id, sensor),
           ),
         );
       });
     });
   }
-
-
 
   LatLng _offsetPosition(LatLng original, double offsetInDegrees) {
     return LatLng(original.latitude - offsetInDegrees, original.longitude);
@@ -363,10 +343,7 @@ class _MapScreenState extends State<MapScreen> {
 
     mapController.animateCamera(
       CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: offsetTarget,
-          zoom: 15,
-        ),
+        CameraPosition(target: offsetTarget, zoom: 15),
       ),
     );
 
@@ -392,11 +369,12 @@ class _MapScreenState extends State<MapScreen> {
           radius: 100,
           strokeWidth: 2,
           strokeColor: _getStatusColor(sensor['sensorData']['status']),
-          fillColor: _getStatusColor(sensor['sensorData']['status']).withOpacity(0.3),
+          fillColor: _getStatusColor(
+            sensor['sensorData']['status'],
+          ).withOpacity(0.3),
         ),
       );
     }
-
   }
 
   Color _getStatusColor(String status) {
@@ -432,8 +410,11 @@ class _MapScreenState extends State<MapScreen> {
       _markers.removeWhere((m) => m.markerId.value == 'user');
 
       // Remove old circles (optional)
-      _circles.removeWhere((c) =>
-      c.circleId.value == 'user_small' || c.circleId.value == 'user_medium');
+      _circles.removeWhere(
+        (c) =>
+            c.circleId.value == 'user_small' ||
+            c.circleId.value == 'user_medium',
+      );
 
       // Add user marker with custom image
       _markers.add(
@@ -447,8 +428,6 @@ class _MapScreenState extends State<MapScreen> {
       );
     });
   }
-
-
 
   void _refreshSensorMarkers() async {
     final BitmapDescriptor sensorIcon = await BitmapDescriptor.fromAssetImage(
@@ -471,14 +450,15 @@ class _MapScreenState extends State<MapScreen> {
             position: sensor['position'],
             icon: sensorIcon,
             anchor: const Offset(0.5, 0.5),
-            infoWindow: showSensorLabels ? InfoWindow(title: id) : InfoWindow.noText,
+            infoWindow: showSensorLabels
+                ? InfoWindow(title: id)
+                : InfoWindow.noText,
             onTap: () => _onSensorTap(id, sensor),
           ),
         );
       });
     });
   }
-
 
   /// Locate user
   void _goToUser() async {
@@ -552,8 +532,14 @@ class _MapScreenState extends State<MapScreen> {
     _isZoomedTilted = !_isZoomedTilted;
   }
 
-
-  void showAppToast(BuildContext context, {required String message, required String status, double? distance,}) {Color bgColor; IconData icon;
+  void showAppToast(
+    BuildContext context, {
+    required String message,
+    required String status,
+    double? distance,
+  }) {
+    Color bgColor;
+    IconData icon;
 
     switch (status.toLowerCase()) {
       case 'safe':
@@ -595,14 +581,11 @@ class _MapScreenState extends State<MapScreen> {
     ).show(context);
   }
 
-  LatLng? savedPinPosition;        // the CURRENT official pin
-  Marker? savedPinMarker;          // marker for the official pin
-  Map<String, dynamic> savedPlace = {
-    "name": "",
-    "location": LatLng(0.0, 0.0),
-  };
+  LatLng? savedPinPosition; // the CURRENT official pin
+  Marker? savedPinMarker; // marker for the official pin
+  Map<String, dynamic> savedPlace = {"name": "", "location": LatLng(0.0, 0.0)};
 
-  LatLng? tappedPosition;          // temporary pin when user taps on map
+  LatLng? tappedPosition; // temporary pin when user taps on map
   Marker? tappedMarker;
   Map<String, dynamic> currentPlace = {
     "name": "",
@@ -610,13 +593,14 @@ class _MapScreenState extends State<MapScreen> {
   };
 
   void _onMapTap(LatLng position) async {
-
     if (selectedVehicle.isEmpty || showMainSheet) {
       print("No vehicle selected. Tap ignored.");
       return;
     }
 
-    print("Saved Pin: ${savedPinPosition?.latitude}, ${savedPinPosition?.longitude}");
+    print(
+      "Saved Pin: ${savedPinPosition?.latitude}, ${savedPinPosition?.longitude}",
+    );
     print("User: ${currentPosition!.latitude}, ${currentPosition!.longitude}");
 
     final BitmapDescriptor pinIcon = await BitmapDescriptor.fromAssetImage(
@@ -639,7 +623,7 @@ class _MapScreenState extends State<MapScreen> {
 
       // Update currentPlace
       currentPlace = {
-        "name": "",        // leave empty since user just tapped
+        "name": "", // leave empty since user just tapped
         "location": position,
       };
       tappedPosition = position;
@@ -675,7 +659,6 @@ class _MapScreenState extends State<MapScreen> {
     //   });
     // }
 
-
     Position fakePosition = Position(
       latitude: position.latitude,
       longitude: position.longitude,
@@ -690,10 +673,6 @@ class _MapScreenState extends State<MapScreen> {
     );
 
     _updatePosition(fakePosition);
-
-
-
-
   }
 
   void cancelPinSelection() {
@@ -706,10 +685,7 @@ class _MapScreenState extends State<MapScreen> {
       tappedPosition = null;
 
       // Clear temporary/current place
-      currentPlace = {
-        "name": "",
-        "location": LatLng(0.0, 0.0),
-      };
+      currentPlace = {"name": "", "location": LatLng(0.0, 0.0)};
     });
 
     // Restore saved pin → draw route again if exists
@@ -730,7 +706,6 @@ class _MapScreenState extends State<MapScreen> {
       _circles.removeWhere((c) => c.circleId.value.startsWith('sensor'));
     });
   }
-
 
   // Set<Polygon> _polygons = {};
   // void _drawAvoidZones() {
@@ -767,7 +742,10 @@ class _MapScreenState extends State<MapScreen> {
   //   });
   // }
 
-  bool isInsideAvoidZone(LatLng usersPosition, List<Map<String, dynamic>> avoidZones) {
+  bool isInsideAvoidZone(
+    LatLng usersPosition,
+    List<Map<String, dynamic>> avoidZones,
+  ) {
     for (var zone in avoidZones) {
       LatLng zoneCenter = zone["position"];
       double radius = zone["radius"]; // in meters
@@ -786,7 +764,10 @@ class _MapScreenState extends State<MapScreen> {
     return false; // not inside any zone
   }
 
-  bool isNearAvoidZone(LatLng usersPosition, List<Map<String, dynamic>> avoidZones) {
+  bool isNearAvoidZone(
+    LatLng usersPosition,
+    List<Map<String, dynamic>> avoidZones,
+  ) {
     for (var zone in avoidZones) {
       LatLng zoneCenter = zone["position"];
       double radius = zone["radius"]; // in meters
@@ -805,20 +786,31 @@ class _MapScreenState extends State<MapScreen> {
     return false; // far any zone
   }
 
-  List<LatLng> _generateCirclePolygon(LatLng center, double radius, int points) {
+  List<LatLng> _generateCirclePolygon(
+    LatLng center,
+    double radius,
+    int points,
+  ) {
     List<LatLng> polygonPoints = [];
     final R = 6371000; // Earth radius in meters
     final dRad = radius / R;
 
     for (int i = 0; i < points; i++) {
       final theta = 2 * pi * i / points;
-      final lat = asin(sin(center.latitude * pi / 180) * cos(dRad) +
-          cos(center.latitude * pi / 180) * sin(dRad) * cos(theta)) *
+      final lat =
+          asin(
+            sin(center.latitude * pi / 180) * cos(dRad) +
+                cos(center.latitude * pi / 180) * sin(dRad) * cos(theta),
+          ) *
           180 /
           pi;
-      final lng = center.longitude +
-          atan2(sin(theta) * sin(dRad) * cos(center.latitude * pi / 180),
-              cos(dRad) - sin(center.latitude * pi / 180) * sin(lat * pi / 180)) *
+      final lng =
+          center.longitude +
+          atan2(
+                sin(theta) * sin(dRad) * cos(center.latitude * pi / 180),
+                cos(dRad) -
+                    sin(center.latitude * pi / 180) * sin(lat * pi / 180),
+              ) *
               180 /
               pi;
       polygonPoints.add(LatLng(lat, lng));
@@ -826,10 +818,6 @@ class _MapScreenState extends State<MapScreen> {
 
     return polygonPoints;
   }
-
-
-
-
 
   List<Map<String, dynamic>> buildAvoidZonesFromSensors() {
     List<Map<String, dynamic>> zones = [];
@@ -843,15 +831,11 @@ class _MapScreenState extends State<MapScreen> {
           "position": sensor['position'],
           "radius": sensor['radius'], // from sensor config
         });
-
       }
     });
 
     return zones;
   }
-
-
-
 
   void _drawRoute(LatLng start, LatLng end) async {
     // ✅ Build avoid zones dynamically
@@ -875,100 +859,6 @@ class _MapScreenState extends State<MapScreen> {
         ),
       );
     });
-  }
-
-
-
-
-
-///Remove
-  void showVehicleModal() {
-    showDialog(
-      context: context,
-      barrierDismissible: false, // still prevents tapping outside
-      builder: (context) {
-        return WillPopScope(
-          onWillPop: () async => false, // prevent back button
-          child: Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-            child: StatefulBuilder(
-              builder: (context, setState) {
-                return Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 10,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        "Which vehicle will you use?",
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        "Select a vehicle from the options below before continuing.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Vehicle options
-                      vehicleTile("Motorcycle", "assets/images/icons/motorcycle.png", setState),
-                      const SizedBox(height: 10),
-                      vehicleTile("Car", "assets/images/icons/car.png", setState),
-                      const SizedBox(height: 10),
-                      vehicleTile("Truck", "assets/images/icons/truck.png", setState),
-
-                      const SizedBox(height: 20),
-
-                      // Confirm button
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: color1,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          onPressed: () {
-                            if (selectedVehicle.isEmpty) {
-                              showVehicleErrorToast(context);
-                              return;
-                            }
-                            print("Selected Vehicle: $selectedVehicle");
-                            Navigator.of(context).pop();
-                          },
-                          child: const Text(
-                            "CONFIRM",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-        );
-      },
-    );
   }
 
   Future<void> openPlaceSearch() async {
@@ -1008,10 +898,7 @@ class _MapScreenState extends State<MapScreen> {
         tappedPosition = position;
 
         // Set currentPlace (temporary)
-        currentPlace = {
-          "name": name,
-          "location": position,
-        };
+        currentPlace = {"name": name, "location": position};
 
         // Show confirmation sheet
         showPinConfirmationSheet = true;
@@ -1022,7 +909,10 @@ class _MapScreenState extends State<MapScreen> {
       });
 
       if (currentPosition != null) {
-        LatLng userPosition = LatLng(currentPosition!.latitude, currentPosition!.longitude);
+        LatLng userPosition = LatLng(
+          currentPosition!.latitude,
+          currentPosition!.longitude,
+        );
 
         // Draw polyline to temporary/current place
         _drawRoute(userPosition, position);
@@ -1044,9 +934,13 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-//Rem/ove
-// Vehicle tile widget with selection effect
-  Widget vehicleTile(String name, String iconPath, void Function(void Function()) setState) {
+  //Rem/ove
+  // Vehicle tile widget with selection effect
+  Widget vehicleTile(
+    String name,
+    String iconPath,
+    void Function(void Function()) setState,
+  ) {
     bool isSelected = selectedVehicle == name;
 
     // Static description and thresholds
@@ -1060,7 +954,7 @@ class _MapScreenState extends State<MapScreen> {
 
     if (name == "Motorcycle") {
       description =
-      "Motorcycles are very vulnerable to floods even at low levels. "
+          "Motorcycles are very vulnerable to floods even at low levels. "
           "Unlike cars and trucks, they can easily lose balance or submerge. "
           "Extra caution is needed when riding in flood-prone areas.";
       safe = "0–20 cm";
@@ -1071,7 +965,7 @@ class _MapScreenState extends State<MapScreen> {
       dangerColor = Colors.red;
     } else if (name == "Car") {
       description =
-      "Cars can normally withstand floods that are below the door step. "
+          "Cars can normally withstand floods that are below the door step. "
           "They are less vulnerable than motorcycles but may still be at risk if water rises higher than the engine level.";
       safe = "0–15 cm";
       warning = "15.1–30 cm";
@@ -1081,7 +975,7 @@ class _MapScreenState extends State<MapScreen> {
       dangerColor = Colors.red;
     } else if (name == "Truck") {
       description =
-      "Trucks can handle large floods because of their size and higher chassis. "
+          "Trucks can handle large floods because of their size and higher chassis. "
           "They are the safest among common vehicles in deep water, but caution is still advised in extreme flood conditions.";
       safe = "0–40 cm";
       warning = "40.1–60 cm";
@@ -1146,40 +1040,67 @@ class _MapScreenState extends State<MapScreen> {
               curve: Curves.easeInOut,
               child: isSelected
                   ? Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      description,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.black87,
-                        height: 1.4,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Text("Safe: ", style: TextStyle(fontWeight: FontWeight.bold, color: safeColor)),
-                        Text(safe, style: TextStyle(color: safeColor)),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Text("Warning: ", style: TextStyle(fontWeight: FontWeight.bold, color: warningColor)),
-                        Text(warning, style: TextStyle(color: warningColor)),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Text("Danger: ", style: TextStyle(fontWeight: FontWeight.bold, color: dangerColor)),
-                        Text(danger, style: TextStyle(color: dangerColor)),
-                      ],
-                    ),
-                  ],
-                ),
-              )
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            description,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.black87,
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Text(
+                                "Safe: ",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: safeColor,
+                                ),
+                              ),
+                              Text(safe, style: TextStyle(color: safeColor)),
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              Text(
+                                "Warning: ",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: warningColor,
+                                ),
+                              ),
+                              Text(
+                                warning,
+                                style: TextStyle(color: warningColor),
+                              ),
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              Text(
+                                "Danger: ",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: dangerColor,
+                                ),
+                              ),
+                              Text(
+                                danger,
+                                style: TextStyle(color: dangerColor),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    )
                   : const SizedBox.shrink(),
             ),
           ],
@@ -1188,17 +1109,13 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-
   void showVehicleErrorToast(BuildContext context) {
     DelightToastBar(
       builder: (context) => ToastCard(
         leading: const Icon(Icons.error_outline, color: Colors.red, size: 28),
         title: const Text(
           "Please select a vehicle to continue",
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-          ),
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
         ),
         color: Colors.white, // background white
       ),
@@ -1207,13 +1124,14 @@ class _MapScreenState extends State<MapScreen> {
     ).show(context);
   }
 
-
-
-
   void showNearFloodAlertToast(BuildContext context) {
     DelightToastBar(
       builder: (context) => ToastCard(
-        leading: const Icon(Icons.crisis_alert_rounded, color: Colors.white, size: 28),
+        leading: const Icon(
+          Icons.crisis_alert_rounded,
+          color: Colors.white,
+          size: 28,
+        ),
         title: const Text(
           "You are only 120–150 meters from an active flood zone",
           style: TextStyle(
@@ -1229,13 +1147,11 @@ class _MapScreenState extends State<MapScreen> {
     ).show(context);
   }
 
-
-
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      resizeToAvoidBottomInset: false, // 🚫 Prevents map/buttons from shifting up
+      resizeToAvoidBottomInset:
+          false, // 🚫 Prevents map/buttons from shifting up
       body: Stack(
         children: [
           // 🗺️ MAP
@@ -1248,7 +1164,10 @@ class _MapScreenState extends State<MapScreen> {
                 controller.animateCamera(
                   CameraUpdate.newCameraPosition(
                     CameraPosition(
-                      target: LatLng(currentPosition!.latitude, currentPosition!.longitude),
+                      target: LatLng(
+                        currentPosition!.latitude,
+                        currentPosition!.longitude,
+                      ),
                       zoom: 17.0, // zoom to 17
                     ),
                   ),
@@ -1259,7 +1178,10 @@ class _MapScreenState extends State<MapScreen> {
             onCameraMove: _onCameraMove,
             initialCameraPosition: CameraPosition(
               target: currentPosition != null
-                  ? LatLng(currentPosition!.latitude, currentPosition!.longitude)
+                  ? LatLng(
+                      currentPosition!.latitude,
+                      currentPosition!.longitude,
+                    )
                   : _center,
               zoom: 15.0, // start at 15
             ),
@@ -1348,7 +1270,6 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ),
 
-
                 ElevatedButton(
                   onPressed: _resetOrientation,
                   style: ElevatedButton.styleFrom(
@@ -1370,8 +1291,6 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ),
                 ),
-
-
 
                 ElevatedButton(
                   onPressed: () {
@@ -1415,7 +1334,9 @@ class _MapScreenState extends State<MapScreen> {
             right: 0,
 
             /// Slide up / Slide down
-            bottom: showDirectionSheet ? directionDragOffset : -directionSheetHeight,
+            bottom: showDirectionSheet
+                ? directionDragOffset
+                : -directionSheetHeight,
 
             /// AUTO HEIGHT (null at first, then assigned after measurement)
             height: directionSheetHeight == 0 ? null : directionSheetHeight,
@@ -1425,9 +1346,11 @@ class _MapScreenState extends State<MapScreen> {
                 setState(() {
                   directionDragOffset -= details.delta.dy;
 
-                  if (directionDragOffset > 0) directionDragOffset = 0; // cannot drag above
+                  if (directionDragOffset > 0)
+                    directionDragOffset = 0; // cannot drag above
                   if (directionDragOffset < -directionSheetHeight) {
-                    directionDragOffset = -directionSheetHeight; // cannot drag below hidden
+                    directionDragOffset =
+                        -directionSheetHeight; // cannot drag below hidden
                   }
                 });
               },
@@ -1459,7 +1382,9 @@ class _MapScreenState extends State<MapScreen> {
                     builder: (context, constraints) {
                       /// AUTO-DETECT HEIGHT after widget builds
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        final renderBox = directionKey.currentContext?.findRenderObject() as RenderBox?;
+                        final renderBox =
+                            directionKey.currentContext?.findRenderObject()
+                                as RenderBox?;
                         if (renderBox != null) {
                           final newHeight = renderBox.size.height;
                           if (directionSheetHeight != newHeight) {
@@ -1487,7 +1412,11 @@ class _MapScreenState extends State<MapScreen> {
                           // Title
                           Row(
                             children: [
-                              Icon(Icons.polyline_rounded, size: 32, color: color1_2),
+                              Icon(
+                                Icons.polyline_rounded,
+                                size: 32,
+                                color: color1_2,
+                              ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
@@ -1495,7 +1424,10 @@ class _MapScreenState extends State<MapScreen> {
                                   children: [
                                     const Text(
                                       "Directions",
-                                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                     Text(
                                       "Select a vehicle and destination",
@@ -1527,18 +1459,31 @@ class _MapScreenState extends State<MapScreen> {
                                   },
                                   child: Container(
                                     height: 50,
-                                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
                                     child: Row(
                                       children: [
-                                        Image.asset('assets/images/icons/current.png', width: 22, height: 22),
+                                        Image.asset(
+                                          'assets/images/icons/current.png',
+                                          width: 22,
+                                          height: 22,
+                                        ),
                                         const SizedBox(width: 10),
                                         Expanded(
                                           child: Text(
                                             "Current Location",
-                                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w500,
+                                            ),
                                           ),
                                         ),
-                                        Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                                        Icon(
+                                          Icons.arrow_forward_ios,
+                                          size: 16,
+                                          color: Colors.grey,
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -1553,10 +1498,16 @@ class _MapScreenState extends State<MapScreen> {
                                   },
                                   child: Container(
                                     height: 50,
-                                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
                                     child: Row(
                                       children: [
-                                        Image.asset('assets/images/icons/destination.png', width: 22, height: 22),
+                                        Image.asset(
+                                          'assets/images/icons/destination.png',
+                                          width: 22,
+                                          height: 22,
+                                        ),
                                         const SizedBox(width: 10),
                                         Expanded(
                                           child: Text(
@@ -1564,14 +1515,21 @@ class _MapScreenState extends State<MapScreen> {
                                             savedPlace["name"] != ""
                                                 ? savedPlace["name"]
                                                 : (savedPinPosition != null
-                                                ? "${savedPinPosition!.latitude.toStringAsFixed(5)}, ${savedPinPosition!.longitude.toStringAsFixed(5)}"
-                                                : "Select Destination"),
-                                            style: const TextStyle(fontSize: 16),
-                                            overflow: TextOverflow.ellipsis, // truncate if too long
+                                                      ? "${savedPinPosition!.latitude.toStringAsFixed(5)}, ${savedPinPosition!.longitude.toStringAsFixed(5)}"
+                                                      : "Select Destination"),
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                            ),
+                                            overflow: TextOverflow
+                                                .ellipsis, // truncate if too long
                                             maxLines: 1, // ensure only one line
                                           ),
                                         ),
-                                        Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                                        Icon(
+                                          Icons.arrow_forward_ios,
+                                          size: 16,
+                                          color: Colors.grey,
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -1605,9 +1563,12 @@ class _MapScreenState extends State<MapScreen> {
                                   children: [
                                     selectVehicle(
                                       name: 'Motorcycle',
-                                      imagePath: 'assets/images/icons/motorcycle.png',
+                                      imagePath:
+                                          'assets/images/icons/motorcycle.png',
                                       onTap: () {
-                                        setState(() => selectedVehicle = 'Motorcycle');
+                                        setState(
+                                          () => selectedVehicle = 'Motorcycle',
+                                        );
                                       },
                                     ),
                                     const SizedBox(width: 5),
@@ -1621,9 +1582,12 @@ class _MapScreenState extends State<MapScreen> {
                                     const SizedBox(width: 5),
                                     selectVehicle(
                                       name: 'Truck',
-                                      imagePath: 'assets/images/icons/truck.png',
+                                      imagePath:
+                                          'assets/images/icons/truck.png',
                                       onTap: () {
-                                        setState(() => selectedVehicle = 'Truck');
+                                        setState(
+                                          () => selectedVehicle = 'Truck',
+                                        );
                                       },
                                     ),
                                   ],
@@ -1632,7 +1596,9 @@ class _MapScreenState extends State<MapScreen> {
                             ),
                           ),
 
-                          SizedBox(height: 50), // extra spacing same as your Sensor sheet
+                          SizedBox(
+                            height: 50,
+                          ), // extra spacing same as your Sensor sheet
                         ],
                       );
                     },
@@ -1648,15 +1614,20 @@ class _MapScreenState extends State<MapScreen> {
             curve: Curves.easeOut,
             left: 0,
             right: 0,
-            bottom: showSensorSettingsSheet ? sensorSettingsDragOffset : -sensorSettingsSheetHeight,
+            bottom: showSensorSettingsSheet
+                ? sensorSettingsDragOffset
+                : -sensorSettingsSheetHeight,
             // AUTO HEIGHT
-            height: sensorSettingsSheetHeight == 0 ? null : sensorSettingsSheetHeight,
+            height: sensorSettingsSheetHeight == 0
+                ? null
+                : sensorSettingsSheetHeight,
             child: GestureDetector(
               onVerticalDragUpdate: (details) {
                 setState(() {
                   sensorSettingsDragOffset -= details.delta.dy;
 
-                  if (sensorSettingsDragOffset > 0) sensorSettingsDragOffset = 0;
+                  if (sensorSettingsDragOffset > 0)
+                    sensorSettingsDragOffset = 0;
 
                   if (sensorSettingsDragOffset < -sensorSettingsSheetHeight) {
                     sensorSettingsDragOffset = -sensorSettingsSheetHeight;
@@ -1689,7 +1660,9 @@ class _MapScreenState extends State<MapScreen> {
                     builder: (context, constraints) {
                       // AUTO-DETECT THE HEIGHT AFTER FIRST BUILD
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        final renderBox = sensorSettingsKey.currentContext?.findRenderObject() as RenderBox?;
+                        final renderBox =
+                            sensorSettingsKey.currentContext?.findRenderObject()
+                                as RenderBox?;
                         if (renderBox != null) {
                           final newHeight = renderBox.size.height;
                           if (sensorSettingsSheetHeight != newHeight) {
@@ -1724,7 +1697,10 @@ class _MapScreenState extends State<MapScreen> {
                                   children: [
                                     const Text(
                                       "Sensor Settings",
-                                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                     Text(
                                       "Control sensor display options",
@@ -1783,7 +1759,7 @@ class _MapScreenState extends State<MapScreen> {
                               _refreshSensorMarkers();
                             },
                           ),
-                          SizedBox(height: 50,)
+                          SizedBox(height: 50),
                         ],
                       );
                     },
@@ -1824,7 +1800,9 @@ class _MapScreenState extends State<MapScreen> {
                     sensorDragOffset = 0;
 
                     // Remove sensor circles when closing
-                    _circles.removeWhere((c) => c.circleId.value.startsWith('sensor'));
+                    _circles.removeWhere(
+                      (c) => c.circleId.value.startsWith('sensor'),
+                    );
                   });
                 } else {
                   setState(() {
@@ -1854,7 +1832,8 @@ class _MapScreenState extends State<MapScreen> {
                       // AUTO-DETECT HEIGHT
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         final renderBox =
-                        sensorKey.currentContext?.findRenderObject() as RenderBox?;
+                            sensorKey.currentContext?.findRenderObject()
+                                as RenderBox?;
 
                         if (renderBox != null) {
                           final newHeight = renderBox.size.height;
@@ -1892,8 +1871,11 @@ class _MapScreenState extends State<MapScreen> {
                           // HEADER
                           Row(
                             children: [
-                              const Icon(Icons.sensors,
-                                  size: 32, color: color1_2),
+                              const Icon(
+                                Icons.sensors,
+                                size: 32,
+                                color: color1_2,
+                              ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
@@ -1902,7 +1884,9 @@ class _MapScreenState extends State<MapScreen> {
                                     const Text(
                                       "Sensor Details",
                                       style: TextStyle(
-                                          fontSize: 20, fontWeight: FontWeight.bold),
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                     Text(
                                       "Tap for more information",
@@ -1934,14 +1918,23 @@ class _MapScreenState extends State<MapScreen> {
                               children: [
                                 _infoRow("Sensor ID", selectedSensorId ?? "-"),
                                 _infoRow("Location", "Ortigas Ave"),
-                                _infoRow("Flood Height", "${data?['floodHeight'] ?? "-"} cm"),
-                                _infoRow("Distance", "${data?['distance'] ?? "-"} cm"),
+                                _infoRow(
+                                  "Flood Height",
+                                  "${data?['floodHeight'] ?? "-"} cm",
+                                ),
+                                _infoRow(
+                                  "Distance",
+                                  "${data?['distance'] ?? "-"} cm",
+                                ),
                                 _statusRow(
                                   "Status",
                                   data?['status'] ?? "-",
                                   _getStatusColor(data?['status'] ?? ""),
                                 ),
-                                _infoRow("Last Update", data?['lastUpdate'] ?? "-"),
+                                _infoRow(
+                                  "Last Update",
+                                  data?['lastUpdate'] ?? "-",
+                                ),
                               ],
                             ),
                           ),
@@ -1955,7 +1948,9 @@ class _MapScreenState extends State<MapScreen> {
                               child: ElevatedButton(
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: color1,
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
@@ -1991,17 +1986,22 @@ class _MapScreenState extends State<MapScreen> {
             curve: Curves.easeOut,
             left: 0,
             right: 0,
-            bottom: showPinConfirmationSheet ? pinConfirmationDragOffset : -pinConfirmationSheetHeight,
+            bottom: showPinConfirmationSheet
+                ? pinConfirmationDragOffset
+                : -pinConfirmationSheetHeight,
 
             // AUTO HEIGHT
-            height: pinConfirmationSheetHeight == 0 ? null : pinConfirmationSheetHeight,
+            height: pinConfirmationSheetHeight == 0
+                ? null
+                : pinConfirmationSheetHeight,
 
             child: GestureDetector(
               onVerticalDragUpdate: (details) {
                 setState(() {
                   pinConfirmationDragOffset -= details.delta.dy;
 
-                  if (pinConfirmationDragOffset > 0) pinConfirmationDragOffset = 0;
+                  if (pinConfirmationDragOffset > 0)
+                    pinConfirmationDragOffset = 0;
 
                   if (pinConfirmationDragOffset < -pinConfirmationSheetHeight) {
                     pinConfirmationDragOffset = -pinConfirmationSheetHeight;
@@ -2010,11 +2010,14 @@ class _MapScreenState extends State<MapScreen> {
               },
 
               onVerticalDragEnd: (details) {
-                if (pinConfirmationDragOffset < -pinConfirmationSheetHeight / 2) {
+                if (pinConfirmationDragOffset <
+                    -pinConfirmationSheetHeight / 2) {
                   setState(() {
                     cancelPinSelection();
                     pinConfirmationDragOffset = 0;
-                    _circles.removeWhere((c) => c.circleId.value.startsWith('sensor'));
+                    _circles.removeWhere(
+                      (c) => c.circleId.value.startsWith('sensor'),
+                    );
                   });
                 } else {
                   setState(() {
@@ -2044,7 +2047,8 @@ class _MapScreenState extends State<MapScreen> {
                       // AUTO-DETECT HEIGHT
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         final renderBox =
-                        pinConfirmKey.currentContext?.findRenderObject() as RenderBox?;
+                            pinConfirmKey.currentContext?.findRenderObject()
+                                as RenderBox?;
 
                         if (renderBox != null) {
                           final newHeight = renderBox.size.height;
@@ -2082,8 +2086,11 @@ class _MapScreenState extends State<MapScreen> {
                           // HEADER
                           Row(
                             children: [
-                              const Icon(Icons.location_pin,
-                                  size: 32, color: color1_2),
+                              const Icon(
+                                Icons.location_pin,
+                                size: 32,
+                                color: color1_2,
+                              ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
@@ -2092,7 +2099,9 @@ class _MapScreenState extends State<MapScreen> {
                                     const Text(
                                       "Set Pin Location",
                                       style: TextStyle(
-                                          fontSize: 20, fontWeight: FontWeight.bold),
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                     Text(
                                       "Tap Confirm to set new pin location",
@@ -2116,7 +2125,9 @@ class _MapScreenState extends State<MapScreen> {
                                   child: OutlinedButton(
                                     style: OutlinedButton.styleFrom(
                                       side: const BorderSide(
-                                          color: color1, width: 2),
+                                        color: color1,
+                                        width: 2,
+                                      ),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
@@ -2160,7 +2171,9 @@ class _MapScreenState extends State<MapScreen> {
                                         savedPinMarker = tappedMarker;
                                         savedPinPosition = tappedPosition;
 
-                                        savedPlace = Map.from(currentPlace); // update savedPlace
+                                        savedPlace = Map.from(
+                                          currentPlace,
+                                        ); // update savedPlace
 
                                         // Clear temp variables
                                         tappedMarker = null;
@@ -2174,7 +2187,11 @@ class _MapScreenState extends State<MapScreen> {
                                         showPinConfirmationSheet = false;
 
                                         // Optional: remove sensor circles
-                                        _circles.removeWhere((c) => c.circleId.value.startsWith('sensor'));
+                                        _circles.removeWhere(
+                                          (c) => c.circleId.value.startsWith(
+                                            'sensor',
+                                          ),
+                                        );
                                       });
                                     },
                                     child: const Text(
@@ -2207,30 +2224,40 @@ class _MapScreenState extends State<MapScreen> {
             curve: Curves.easeOut,
             left: 0,
             right: 0,
-            bottom: showRerouteConfirmationSheet ? rerouteConfirmationDragOffset : -rerouteConfirmationSheetHeight,
+            bottom: showRerouteConfirmationSheet
+                ? rerouteConfirmationDragOffset
+                : -rerouteConfirmationSheetHeight,
 
             // AUTO HEIGHT
-            height: rerouteConfirmationSheetHeight == 0 ? null : rerouteConfirmationSheetHeight,
+            height: rerouteConfirmationSheetHeight == 0
+                ? null
+                : rerouteConfirmationSheetHeight,
 
             child: GestureDetector(
               onVerticalDragUpdate: (details) {
                 setState(() {
                   rerouteConfirmationDragOffset -= details.delta.dy;
 
-                  if (rerouteConfirmationDragOffset > 0) rerouteConfirmationDragOffset = 0;
+                  if (rerouteConfirmationDragOffset > 0)
+                    rerouteConfirmationDragOffset = 0;
 
-                  if (rerouteConfirmationDragOffset < -rerouteConfirmationSheetHeight) {
-                    rerouteConfirmationDragOffset = -rerouteConfirmationSheetHeight;
+                  if (rerouteConfirmationDragOffset <
+                      -rerouteConfirmationSheetHeight) {
+                    rerouteConfirmationDragOffset =
+                        -rerouteConfirmationSheetHeight;
                   }
                 });
               },
 
               onVerticalDragEnd: (details) {
-                if (rerouteConfirmationDragOffset < -rerouteConfirmationSheetHeight / 2) {
+                if (rerouteConfirmationDragOffset <
+                    -rerouteConfirmationSheetHeight / 2) {
                   setState(() {
                     showRerouteConfirmationSheet = false;
                     rerouteConfirmationDragOffset = 0;
-                    _circles.removeWhere((c) => c.circleId.value.startsWith('sensor'));
+                    _circles.removeWhere(
+                      (c) => c.circleId.value.startsWith('sensor'),
+                    );
                   });
                 } else {
                   setState(() {
@@ -2260,7 +2287,8 @@ class _MapScreenState extends State<MapScreen> {
                       // AUTO-DETECT HEIGHT
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         final renderBox =
-                        rerouteConfirmKey.currentContext?.findRenderObject() as RenderBox?;
+                            rerouteConfirmKey.currentContext?.findRenderObject()
+                                as RenderBox?;
 
                         if (renderBox != null) {
                           final newHeight = renderBox.size.height;
@@ -2298,8 +2326,11 @@ class _MapScreenState extends State<MapScreen> {
                           // HEADER
                           Row(
                             children: [
-                              const Icon(Icons.location_pin,
-                                  size: 32, color: color1_2),
+                              const Icon(
+                                Icons.location_pin,
+                                size: 32,
+                                color: color1_2,
+                              ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
@@ -2308,7 +2339,9 @@ class _MapScreenState extends State<MapScreen> {
                                     const Text(
                                       "Route Adjustment", //Set Alternate Route
                                       style: TextStyle(
-                                          fontSize: 20, fontWeight: FontWeight.bold),
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                     Text(
                                       "Confirm to create a detour.", //Tap Confirm to place a pin and create an alternate route.”
@@ -2332,7 +2365,9 @@ class _MapScreenState extends State<MapScreen> {
                                   child: OutlinedButton(
                                     style: OutlinedButton.styleFrom(
                                       side: const BorderSide(
-                                          color: color1, width: 2),
+                                        color: color1,
+                                        width: 2,
+                                      ),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
@@ -2374,12 +2409,16 @@ class _MapScreenState extends State<MapScreen> {
                                       });
 
                                       // 2–3. After UI updates, draw new route
-                                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                                        _drawRoute(
-                                          LatLng(currentPosition!.latitude, currentPosition!.longitude),
-                                          savedPinMarker!.position,
-                                        );
-                                      });
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback((_) {
+                                            _drawRoute(
+                                              LatLng(
+                                                currentPosition!.latitude,
+                                                currentPosition!.longitude,
+                                              ),
+                                              savedPinMarker!.position,
+                                            );
+                                          });
                                     },
                                     child: const Text(
                                       "REROUTE",
@@ -2422,7 +2461,9 @@ class _MapScreenState extends State<MapScreen> {
                       cancelPinSelection();
                       showDirectionSheet = !showDirectionSheet;
                     });
-                    _circles.removeWhere((c) => c.circleId.value.startsWith('sensor'));
+                    _circles.removeWhere(
+                      (c) => c.circleId.value.startsWith('sensor'),
+                    );
                   },
                   label: 'Directions',
                   imagePath: 'assets/images/icons/pin.png',
@@ -2438,7 +2479,9 @@ class _MapScreenState extends State<MapScreen> {
                       cancelPinSelection();
                       showSensorSettingsSheet = !showSensorSettingsSheet;
                     });
-                    _circles.removeWhere((c) => c.circleId.value.startsWith('sensor'));
+                    _circles.removeWhere(
+                      (c) => c.circleId.value.startsWith('sensor'),
+                    );
                   },
                   label: 'Sensor',
                   imagePath: 'assets/images/icons/sensor.png',
@@ -2453,31 +2496,41 @@ class _MapScreenState extends State<MapScreen> {
                         showSensorSettingsSheet = false;
                         showPinConfirmationSheet = false;
                         cancelPinSelection();
-                        showRerouteConfirmationSheet = !showRerouteConfirmationSheet;
+                        showRerouteConfirmationSheet =
+                            !showRerouteConfirmationSheet;
                       });
-                      _circles.removeWhere((c) => c.circleId.value.startsWith('sensor'));
+                      _circles.removeWhere(
+                        (c) => c.circleId.value.startsWith('sensor'),
+                      );
                     }
                   },
                   label: 'Alerts',
                   imagePath: 'assets/images/icons/exclamation.png',
-                  iconColor: (showRerouteConfirmationSheet) ? color1 : (displayAlert) ? Colors.red : color2,
-                  buttonColor: (showRerouteConfirmationSheet) ? Colors.white : (displayAlert) ? color_alert : Colors.white,
+                  iconColor: (showRerouteConfirmationSheet)
+                      ? color1
+                      : (displayAlert)
+                      ? Colors.red
+                      : color2,
+                  buttonColor: (showRerouteConfirmationSheet)
+                      ? Colors.white
+                      : (displayAlert)
+                      ? color_alert
+                      : Colors.white,
                 ),
               ],
             ),
           ),
 
           ///Burger menu
-
           Positioned(
             top: 20,
             left: 10,
             child: AnimatedOpacity(
               duration: const Duration(milliseconds: 300), // fade duration
-              opacity: showMainSheet ? 0.0 : 1.0,         // fade out when true
+              opacity: showMainSheet ? 0.0 : 1.0, // fade out when true
               curve: Curves.easeInOut,
               child: IgnorePointer(
-                ignoring: showMainSheet,                  // disable tap when hidden
+                ignoring: showMainSheet, // disable tap when hidden
                 child: GestureDetector(
                   onTap: () {
                     setState(() {
@@ -2513,9 +2566,6 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-
-
-
           ///New Added
           ///Banner
           AnimatedPositioned(
@@ -2535,10 +2585,7 @@ class _MapScreenState extends State<MapScreen> {
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [
-                      color1_3,
-                      color1,
-                    ],
+                    colors: [color1_3, color1],
                   ),
                   borderRadius: BorderRadius.circular(15),
                   boxShadow: [
@@ -2585,15 +2632,13 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-
-
           ///New Added
           /// Main Sheet
           if (showMainSheet)
             DraggableScrollableSheet(
               initialChildSize: 0.45, // start mid-screen
-              minChildSize: 0.25,     // drag down to close
-              maxChildSize: 0.95,     // full screen
+              minChildSize: 0.25, // drag down to close
+              maxChildSize: 0.95, // full screen
               snap: true,
               snapSizes: const [0.45, 0.95],
 
@@ -2611,7 +2656,8 @@ class _MapScreenState extends State<MapScreen> {
                   child: NotificationListener<DraggableScrollableNotification>(
                     onNotification: (notification) {
                       // Only allow closing if a vehicle is selected
-                      if (selectedVehicle.isNotEmpty && notification.extent <= 0.25) {
+                      if (selectedVehicle.isNotEmpty &&
+                          notification.extent <= 0.25) {
                         setState(() => showMainSheet = false);
                       }
                       return true;
@@ -2619,7 +2665,9 @@ class _MapScreenState extends State<MapScreen> {
                     child: Container(
                       decoration: const BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(20),
+                        ),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black26,
@@ -2656,12 +2704,16 @@ class _MapScreenState extends State<MapScreen> {
                                   // HEADER
                                   Row(
                                     children: [
-                                      Icon(Icons.emoji_transportation,
-                                          size: 32, color: color1_2),
+                                      Icon(
+                                        Icons.emoji_transportation,
+                                        size: 32,
+                                        color: color1_2,
+                                      ),
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             const Text(
                                               "Select Vehicle",
@@ -2672,7 +2724,9 @@ class _MapScreenState extends State<MapScreen> {
                                             ),
                                             Text(
                                               "Description",
-                                              style: TextStyle(color: Colors.grey[600]),
+                                              style: TextStyle(
+                                                color: Colors.grey[600],
+                                              ),
                                             ),
                                           ],
                                         ),
@@ -2684,52 +2738,71 @@ class _MapScreenState extends State<MapScreen> {
 
                                   // VEHICLE SELECTION
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceAround,
                                     children: [
                                       vehicleSelection(
                                         name: 'Motorcycle',
                                         imagePath:
-                                        'assets/images/3d-images/Motorcycle-3d.png',
+                                            'assets/images/3d-images/Motorcycle-3d.png',
                                         onTap: () {
-                                          setState(() => selectedVehicle = 'Motorcycle');
-                                          VehicleInfoPopup.show(context, "Motorcycle",
-                                              onConfirm: () {
-                                                setState(() {
-                                                  showMainSheet = false;
-                                                  showDirectionSheet = true;
-                                                  _goToUser();
-                                                });
+                                          setState(
+                                            () =>
+                                                selectedVehicle = 'Motorcycle',
+                                          );
+                                          VehicleInfoPopup.show(
+                                            context,
+                                            "Motorcycle",
+                                            onConfirm: () {
+                                              setState(() {
+                                                showMainSheet = false;
+                                                showDirectionSheet = true;
+                                                _goToUser();
                                               });
+                                            },
+                                          );
                                         },
                                       ),
                                       vehicleSelection(
                                         name: 'Car',
-                                        imagePath: 'assets/images/3d-images/car-3d.png',
+                                        imagePath:
+                                            'assets/images/3d-images/car-3d.png',
                                         onTap: () {
-                                          setState(() => selectedVehicle = 'Car');
-                                          VehicleInfoPopup.show(context, "Car",
-                                              onConfirm: () {
-                                                setState(() {
-                                                  showMainSheet = false;
-                                                  showDirectionSheet = true;
-                                                  _goToUser();
-                                                });
+                                          setState(
+                                            () => selectedVehicle = 'Car',
+                                          );
+                                          VehicleInfoPopup.show(
+                                            context,
+                                            "Car",
+                                            onConfirm: () {
+                                              setState(() {
+                                                showMainSheet = false;
+                                                showDirectionSheet = true;
+                                                _goToUser();
                                               });
+                                            },
+                                          );
                                         },
                                       ),
                                       vehicleSelection(
                                         name: 'Truck',
-                                        imagePath: 'assets/images/3d-images/truck-3d.png',
+                                        imagePath:
+                                            'assets/images/3d-images/truck-3d.png',
                                         onTap: () {
-                                          setState(() => selectedVehicle = 'Truck');
-                                          VehicleInfoPopup.show(context, "Truck",
-                                              onConfirm: () {
-                                                setState(() {
-                                                  showMainSheet = false;
-                                                  showDirectionSheet = true;
-                                                  _goToUser();
-                                                });
+                                          setState(
+                                            () => selectedVehicle = 'Truck',
+                                          );
+                                          VehicleInfoPopup.show(
+                                            context,
+                                            "Truck",
+                                            onConfirm: () {
+                                              setState(() {
+                                                showMainSheet = false;
+                                                showDirectionSheet = true;
+                                                _goToUser();
                                               });
+                                            },
+                                          );
                                         },
                                       ),
                                     ],
@@ -2737,11 +2810,12 @@ class _MapScreenState extends State<MapScreen> {
 
                                   const SizedBox(height: 20),
 
-
                                   const Text(
                                     'Related',
                                     style: TextStyle(
-                                        fontSize: 20, fontWeight: FontWeight.w600),
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                   const SizedBox(height: 15),
 
@@ -2752,10 +2826,7 @@ class _MapScreenState extends State<MapScreen> {
                                       gradient: LinearGradient(
                                         begin: Alignment.topLeft,
                                         end: Alignment.bottomRight,
-                                        colors: [
-                                          Colors.white,
-                                          Colors.white70,
-                                        ],
+                                        colors: [Colors.white, Colors.white70],
                                       ),
                                       boxShadow: [
                                         BoxShadow(
@@ -2768,7 +2839,8 @@ class _MapScreenState extends State<MapScreen> {
                                       borderRadius: BorderRadius.circular(15),
                                     ),
                                     child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceAround,
                                       children: [
                                         // Weather Icon
                                         Column(
@@ -2785,7 +2857,10 @@ class _MapScreenState extends State<MapScreen> {
                                                 width: 100,
                                                 height: 100,
                                                 child: Center(
-                                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                      ),
                                                 ),
                                               ),
                                           ],
@@ -2795,7 +2870,9 @@ class _MapScreenState extends State<MapScreen> {
                                         Column(
                                           children: [
                                             Text(
-                                              currentTime.isNotEmpty ? currentTime : '--:--',
+                                              currentTime.isNotEmpty
+                                                  ? currentTime
+                                                  : '--:--',
                                               style: TextStyle(
                                                 fontSize: 15,
                                                 fontWeight: FontWeight.w600,
@@ -2804,7 +2881,9 @@ class _MapScreenState extends State<MapScreen> {
 
                                             Text(
                                               // ignore: unnecessary_null_comparison
-                                              temperature != null ? '${temperature}°C' : '--°C',
+                                              temperature != null
+                                                  ? '${temperature}°C'
+                                                  : '--°C',
                                               style: TextStyle(
                                                 color: color1,
                                                 fontSize: 30,
@@ -2813,7 +2892,9 @@ class _MapScreenState extends State<MapScreen> {
                                             ),
 
                                             Text(
-                                              weatherDescription.isNotEmpty ? weatherDescription : 'Loading...',
+                                              weatherDescription.isNotEmpty
+                                                  ? weatherDescription
+                                                  : 'Loading...',
                                               style: TextStyle(
                                                 fontSize: 15,
                                                 fontWeight: FontWeight.w600,
@@ -2834,24 +2915,30 @@ class _MapScreenState extends State<MapScreen> {
                                         flex: 4,
                                         child: GestureDetector(
                                           onTap: () {
-                                            Navigator.pushNamed(context, '/recent-alert');
+                                            Navigator.pushNamed(
+                                              context,
+                                              '/recent-alert',
+                                            );
                                           },
                                           child: Container(
                                             height: 120,
                                             padding: const EdgeInsets.all(12),
                                             decoration: BoxDecoration(
                                               color: const Color(0xFF8670EA),
-                                              borderRadius: BorderRadius.circular(12),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: Colors.black.withOpacity(0.12),
+                                                  color: Colors.black
+                                                      .withOpacity(0.12),
                                                   blurRadius: 6,
                                                   offset: const Offset(0, 3),
                                                 ),
                                               ],
                                             ),
                                             child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.center,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.center,
                                               children: [
                                                 Expanded(
                                                   child: Image.asset(
@@ -2883,22 +2970,30 @@ class _MapScreenState extends State<MapScreen> {
                                           children: [
                                             GestureDetector(
                                               onTap: () {
-                                                Navigator.pushNamed(context, '/flood-tips');
+                                                Navigator.pushNamed(
+                                                  context,
+                                                  '/flood-tips',
+                                                );
                                               },
                                               child: _smallCard(
                                                 color: const Color(0xFF40DCD1),
-                                                image: 'assets/images/3d-images/rescue-3d.png',
+                                                image:
+                                                    'assets/images/3d-images/rescue-3d.png',
                                                 text: "Flood Tips",
                                               ),
                                             ),
                                             const SizedBox(height: 10),
                                             GestureDetector(
                                               onTap: () {
-                                                Navigator.pushNamed(context, '/rescue-call');
+                                                Navigator.pushNamed(
+                                                  context,
+                                                  '/rescue-call',
+                                                );
                                               },
                                               child: _smallCard(
                                                 color: const Color(0xFFE59864),
-                                                image: 'assets/images/3d-images/help-3d.png',
+                                                image:
+                                                    'assets/images/3d-images/help-3d.png',
                                                 text: "Rescue Call",
                                               ),
                                             ),
@@ -2907,7 +3002,6 @@ class _MapScreenState extends State<MapScreen> {
                                       ),
                                     ],
                                   ),
-
                                 ],
                               ),
                             ),
@@ -2919,8 +3013,6 @@ class _MapScreenState extends State<MapScreen> {
                 );
               },
             ),
-
-
         ],
       ),
     );
@@ -2977,7 +3069,9 @@ class _MapScreenState extends State<MapScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           AnimatedContainer(
-            duration: const Duration(milliseconds: 250), // ✅ smooth color animation
+            duration: const Duration(
+              milliseconds: 250,
+            ), // ✅ smooth color animation
             curve: Curves.easeInOut,
             height: 90,
             width: 90,
@@ -2985,10 +3079,7 @@ class _MapScreenState extends State<MapScreen> {
               color: (selectedVehicle == name) ? color1 : color1_3,
               borderRadius: BorderRadius.circular(15),
             ),
-            child: Image.asset(
-              imagePath,
-              fit: BoxFit.contain,
-            ),
+            child: Image.asset(imagePath, fit: BoxFit.contain),
           ),
 
           const SizedBox(height: 6),
@@ -3005,7 +3096,6 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
   }
-
 
   Widget bottomButton({
     required VoidCallback onTap,
@@ -3066,9 +3156,6 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-
-
-
   Widget selectVehicle({
     required String name,
     required String imagePath,
@@ -3089,18 +3176,18 @@ class _MapScreenState extends State<MapScreen> {
             width: 25, // image slightly smaller than container
             height: 25,
             fit: BoxFit.contain,
-            color: (selectedVehicle == name) ? Colors.white : color2, // apply green tint
-            colorBlendMode: BlendMode.srcIn, // ensures the color replaces the original
+            color: (selectedVehicle == name)
+                ? Colors.white
+                : color2, // apply green tint
+            colorBlendMode:
+                BlendMode.srcIn, // ensures the color replaces the original
           ),
         ),
       ),
     );
   }
 
-
-
-
-// Reusable widget
+  // Reusable widget
   Widget _sensorToggle({
     required String title,
     required String description,
@@ -3114,11 +3201,7 @@ class _MapScreenState extends State<MapScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 6,
-            offset: Offset(0, 3),
-          ),
+          BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 3)),
         ],
       ),
       child: Row(
@@ -3129,18 +3212,12 @@ class _MapScreenState extends State<MapScreen> {
               children: [
                 Text(
                   title,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                 ),
                 SizedBox(height: 4),
                 Text(
                   description,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 ),
               ],
             ),
@@ -3149,14 +3226,12 @@ class _MapScreenState extends State<MapScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: color1,  // your main app primary color
+            activeColor: color1, // your main app primary color
           ),
         ],
       ),
     );
   }
-
-
 
   Widget _infoRow(String label, String value) {
     return Padding(
@@ -3165,8 +3240,10 @@ class _MapScreenState extends State<MapScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(fontSize: 16)),
-          Text(value,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
         ],
       ),
     );
@@ -3192,4 +3269,3 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 }
-

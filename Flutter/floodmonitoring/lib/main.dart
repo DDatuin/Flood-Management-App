@@ -4,9 +4,9 @@ import 'package:floodmonitoring/pages/info.dart';
 import 'package:floodmonitoring/pages/map.dart';
 import 'package:floodmonitoring/pages/recent_alert.dart';
 import 'package:floodmonitoring/pages/rescue_call.dart';
+import 'package:floodmonitoring/core/app_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,22 +16,21 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  SystemChrome.setEnabledSystemUIMode(
-    SystemUiMode.immersiveSticky,
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+  AppManager().start();
+
+  runApp(
+    MaterialApp(
+      initialRoute: '/map',
+      routes: {
+        '/': (context) => Dashboard(),
+        '/map': (context) => MapScreen(),
+        '/info': (context) => Info(),
+        '/recent-alert': (context) => RecentAlert(),
+        '/flood-tips': (context) => FloodTips(),
+        '/rescue-call': (context) => RescueCall(),
+      },
+    ),
   );
-
-  runApp(MaterialApp(
-    initialRoute: '/map',
-    routes: {
-      '/' : (context) => Dashboard(),
-      '/map' : (context) => MapScreen(),
-      '/info' : (context) => Info(),
-      '/recent-alert' : (context) => RecentAlert(),
-      '/flood-tips' : (context) => FloodTips(),
-      '/rescue-call' : (context) => RescueCall(),
-
-
-
-    },
-  ));
 }
