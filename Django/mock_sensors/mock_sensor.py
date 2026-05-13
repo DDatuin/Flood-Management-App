@@ -4,12 +4,6 @@ from paho.mqtt import client as mqtt
 from dotenv import load_dotenv
 load_dotenv()
 
-SENS_LOC = {
-    'SENS_001': [14.60001, 121.00919],
-    'SENS_002': [14.60027, 121.00903],
-    'SENS_003': [14.60058, 121.00877]
-}
-
 class MockMicrocontroller:
     def __init__(self, mcu_id, sensor_ids_connected, broker_url, broker_port, broker_uname, broker_pword, topic, publish_interval=10):
         self.mcu_id = mcu_id
@@ -56,14 +50,12 @@ class MockMicrocontroller:
             for sensor_id in self.sensor_ids_connected:
                 sensor_readings.append({
                     "sensor_id": sensor_id,
-                    "water_level": round(random.uniform(0, 100), 2),
-                    "latlong": SENS_LOC[sensor_id]
+                    "distance": round(random.uniform(0, 2000), 2),
                 })
 
             payload = json.dumps({
                 "mcu_id": self.mcu_id,
                 "readings": sensor_readings,
-                "datetime": time.strftime("%Y-%m-%dT%H:%M:%S")
             })
 
             print(f"[{self.mcu_id}] Publishing → {payload}")

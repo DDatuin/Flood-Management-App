@@ -1,3 +1,8 @@
+from datetime import datetime, timedelta, timezone
+from collections import defaultdict
+
+from api.utils import closest_reading
+
 from .client import supabase
 
 def push_to_supabase(forecast_data_batch, new_data_batch):
@@ -25,7 +30,11 @@ def log_sensor_and_api_data(row_data):
         "rainfall_hr2": row_data['rainfall_hr2'],
         "rainfall_hr12": row_data['rainfall_hr12'],
         "rainfall_hr24": row_data['rainfall_hr24'],
-        "wlvl_now_category": row_data['wlvl_now_category']
+        "wlvl_now_category": row_data['wlvl_now_category'],
+        "temperature": row_data['weather_info']['temperature'],
+        "description": row_data['weather_info']['description'],
+        "pressure": row_data['weather_info']['pressure'],
+        "icon_code": row_data['weather_info']['iconCode']
     }
     response = table.insert(data).execute()
 
@@ -85,3 +94,94 @@ def get_latest_data_from_supabase():
         })
 
     return result
+
+def get_sensor_distance_from_supabase(sensor_id):
+
+    response = (
+        supabase
+        .table("SENSORS")
+        .select("distance")
+        .eq("sensor_id", sensor_id)
+        .single()
+        .execute()
+    )
+
+    data = response.data
+    
+    if data:
+        return data["distance"]
+    return None
+
+def get_sensor_radius_from_supabase(sensor_id):
+
+    response = (
+        supabase
+        .table("SENSORS")
+        .select("radius")
+        .eq("sensor_id", sensor_id)
+        .single()
+        .execute()
+    )
+
+    data = response.data
+    
+    if data:
+        return data["radius"]
+    return None
+
+def get_sensor_location_from_supabase(sensor_id):
+
+    response = (
+        supabase.table("SENSORS")
+        .select("latitude, longitude")
+        .eq("sensor_id", sensor_id)
+        .single()
+        .execute()
+    )
+
+    data = response.data
+
+    return [data["latitude"], data["longitude"]]
+
+
+
+
+def get_sensor_history_from_supabase(sensor_id):
+
+    now = datetime.now(timezone.utc)
+    past_24h = now - timedelta(hours=24)
+
+    response = (
+        supabase.table("SENSOR_AND_API_DATA")
+        .select("timestamp, wlvl_now")
+        .eq("sensor_id", sensor_id)
+        .gte("timestamp", past_24h.isoformat())
+        .lte("timestamp", now.isoformat())
+        .execute()
+    )
+
+    rows = response.data
+
+    hour_marks = [
+        now - timedelta(hours=i)
+        for i in range(24)
+    ]
+
+    hourlyData = []
+    labels = []
+
+    for i, target in enumerate(reversed(hour_marks)):
+        match = closest_reading(target, rows)
+
+        if match:
+            hourlyData.append({
+                "x": i,
+                "y": match["wlvl_now"]
+            })
+            labels.append(target.strftime("%H:00"))
+
+    return {
+        "hourlyData": hourlyData,
+        "labels": labels
+    }
+    

@@ -2,8 +2,10 @@ from datetime import datetime, timezone
 from collections import deque
 import queue
 
+from api.supabase.utils import get_sensor_distance_from_supabase, get_sensor_location_from_supabase, get_sensor_radius_from_supabase
+
 from .preprocessor import engineer_features_for_sensor, engineer_features_for_weather_api
-from .weather_fetcher import get_rainfall_from_api
+from .weather_fetcher import get_weather_from_api
 from .model_predictor.classifier import find_category
 
 WL_LOG_QUEUE_SIZE = 11
@@ -11,6 +13,7 @@ RF_LOG_QUEUE_SIZE = 24
 water_level_readings = {}
 rainfall_readings = {}
 last_logged_hour = {}
+sensor_weather_info = {}
 
 def flatten_datapoints(msg_queue: queue.Queue):
 
@@ -29,8 +32,10 @@ def flatten_datapoints(msg_queue: queue.Queue):
 
         for sensor_connected in microcontroller['readings']:
             sensor_id = sensor_connected['sensor_id']
-            water_level = sensor_connected['water_level']
-            latlong = sensor_connected['latlong']
+            distance = get_sensor_distance_from_supabase(sensor_id)
+            radius = get_sensor_radius_from_supabase(sensor_id)
+            water_level = distance - sensor_connected['distance']
+            latlong = get_sensor_location_from_supabase(sensor_id)
 
             if sensor_id not in water_level_readings:
                 water_level_readings[sensor_id] = deque(maxlen=WL_LOG_QUEUE_SIZE)
@@ -42,6 +47,8 @@ def flatten_datapoints(msg_queue: queue.Queue):
                 "sensor_id": sensor_id,
                 "water_level": water_level,
                 "latlong": latlong,
+                "distance": distance,
+                "radius": radius,
                 "wlvl_now_category": find_category(water_level)
             })
 
@@ -70,11 +77,12 @@ def ingest_datapoints_from_queue(msg_queue: queue.Queue):
     
         if sensor_id not in last_logged_hour or last_logged_hour[sensor_id] != current_hour:
 
-            rainfall = get_rainfall_from_api(datapoint['latlong'])
+            rainfall, weather_info = get_weather_from_api(datapoint['latlong'])
 
             if sensor_id not in rainfall_readings:
                     rainfall_readings[sensor_id] = deque(maxlen=RF_LOG_QUEUE_SIZE)
             rainfall_readings[sensor_id].append((current_hour, rainfall))
+            sensor_weather_info[sensor_id] = weather_info
             last_logged_hour[sensor_id] = current_hour
 
         weather_features = engineer_features_for_weather_api(rainfall_readings.get(sensor_id, []))
@@ -83,6 +91,8 @@ def ingest_datapoints_from_queue(msg_queue: queue.Queue):
             'mcu_id': datapoint['mcu_id'],
             'sensor_id': sensor_id,
             'latlng':datapoint['latlong'],
+            'distance': datapoint['distance'],
+            'radius': datapoint['radius'],
             'wlvl_now_category': datapoint['wlvl_now_category'],
             'wlvl_now': flood_features['wlvl_now'],
             'wlvl_lag_1': flood_features['wlvl_lag_1'],
@@ -95,7 +105,8 @@ def ingest_datapoints_from_queue(msg_queue: queue.Queue):
             'rainfall_hr1': weather_features['rainfall_hr1'],
             'rainfall_hr2': weather_features['rainfall_hr2'],
             'rainfall_hr12': weather_features['rainfall_hr12'],
-            'rainfall_hr24': weather_features['rainfall_hr24']
+            'rainfall_hr24': weather_features['rainfall_hr24'],
+            'weather_info': sensor_weather_info.get(sensor_id, {}),
         })
 
         print(f"[INGEST] Sensor reading processed...")

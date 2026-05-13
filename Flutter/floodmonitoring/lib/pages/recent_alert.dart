@@ -1,11 +1,11 @@
+import 'package:floodmonitoring/core/app_manager.dart';
+import 'package:floodmonitoring/core/services/category_parser.dart';
+import 'package:floodmonitoring/core/services/sensor_service.dart';
+import 'package:floodmonitoring/pages/widgets/components/custom_app_bar.dart';
+import 'package:floodmonitoring/utils/colors.dart';
+import 'package:floodmonitoring/utils/data_classes.dart';
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart'; // kept because your sensor map uses LatLng
-import 'package:floodmonitoring/utils/style.dart';
-
-// Your sensor map
-Map<String, Map<String, dynamic>> sensors = {
-
-};
+import 'package:provider/provider.dart';
 
 class RecentAlert extends StatefulWidget {
   const RecentAlert({super.key});
@@ -17,66 +17,78 @@ class RecentAlert extends StatefulWidget {
 class _RecentAlertState extends State<RecentAlert> {
   @override
   Widget build(BuildContext context) {
-    // Convert SENSOR map → alert list
-    final List<Map<String, dynamic>> alerts = sensors.entries.map((e) {
-      final name = e.key;
-      final data = e.value;
-      final sensor = data["sensorData"];
+    final appManager = context.read<AppManager>();
+    final sensorData = context.watch<SensorService>().latestSensorData;
+    final vehicle = appManager.selectedVehicle;
+
+    final alerts = sensorData.entries.map((entry) {
+      final sensorId = entry.key;
+      final data = entry.value;
 
       return {
-        "location": name,
-        "status": sensor["status"],
-        "level": "Flood Level: ${sensor['distance']} cm",
+        "id": sensorId,
+        "location": "Sensor $sensorId",
+        "status": parseFloodCat(data["flood_cat"]),
+        "level": data["wlvl_now"]?.toString() ?? "-",
+        "forecast": data["forecast"]?.toString() ?? "-",
+        "latlong": data["latlong"]?.toString() ?? "-",
       };
     }).toList();
 
-    // Filter Warning & Danger alerts
-    final activeAlerts = alerts
-        .where((a) =>
-    a['status'] == 'Warning' ||
-        a['status'] == 'Danger')
-        .toList();
+    final raw = VehicleDict.vehicleList[vehicle]?['passable_flood_cat'];
+    final passable = (raw is List)
+        ? raw.cast<FloodStatusLevels>()
+        : <FloodStatusLevels>[];
+
+    final activeAlerts = alerts.where((a) {
+      final status = a['status'] as FloodStatusLevels;
+      return !passable.contains(status);
+    }).toList();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Recent Alerts"),
-        backgroundColor: color1,
+      backgroundColor: Colors.grey[50],
+      appBar: CustomAppBar(
+        title: "Recent Alerts",
+        backgroundColor: themeBlue,
+        onBack: () => Navigator.pop(context),
       ),
-      backgroundColor: Colors.white,
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: activeAlerts.isEmpty
-            ? const Center(
-          child: Text(
-            "No active alerts",
-            style: TextStyle(fontSize: 16, color: Colors.black54),
-          ),
-        )
-            : Column(
-          children:
-          activeAlerts.map((alert) => _alertCard(alert)).toList(),
-        ),
+            ? Center(
+                child: Text(
+                  "No active alerts",
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.black54,
+                    fontFamily: 'AvenirNext',
+                  ),
+                ),
+              )
+            : ListView.builder(
+                itemCount: activeAlerts.length,
+                itemBuilder: (context, index) {
+                  final alert = activeAlerts[index];
+                  return _alertCard(alert);
+                },
+              ),
       ),
     );
   }
 
-  Widget _alertCard(Map<String, dynamic> alert) {
-    Color statusColor;
-    IconData statusIcon;
+  // ========================================
+  // UI WIDGETS
+  // ========================================
 
-    switch (alert['status']) {
-      case 'Warning':
-        statusColor = color_warning;
-        statusIcon = Icons.warning_amber_rounded;
-        break;
-      case 'Danger':
-        statusColor = color_danger;
-        statusIcon = Icons.dangerous_rounded;
-        break;
-      default:
-        statusColor = Colors.grey;
-        statusIcon = Icons.info_outline;
-    }
+  /// ----- ALERT CARD -----
+  Widget _alertCard(Map<String, dynamic> alert) {
+    final Color statusColor =
+        FloodStatuses.floodStatuses[alert['status']]!['color'];
+    final Widget statusIcon = Image.asset(
+      FloodStatuses.floodStatuses[alert['status']]!['icon'],
+      width: 28,
+      height: 28,
+    );
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -90,30 +102,38 @@ class _RecentAlertState extends State<RecentAlert> {
       ),
       child: Row(
         children: [
-          // Left info
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(alert['location'] ?? "-",
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(
+                  alert['location'] ?? "-",
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'AvenirNext',
+                  ),
+                ),
                 const SizedBox(height: 6),
-                Text(alert['level'] ?? "-",
-                    style:
-                    const TextStyle(fontSize: 14, color: Colors.black54)),
+                Text(
+                  alert['forecast'] ?? "-",
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Colors.black54,
+                    fontFamily: 'AvenirNext',
+                  ),
+                ),
               ],
             ),
           ),
 
-          // Right status icon
           Container(
-            padding: const EdgeInsets.all(6),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: statusColor.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(statusIcon, color: statusColor, size: 28),
+            child: statusIcon,
           ),
         ],
       ),

@@ -1,20 +1,48 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
-import 'package:floodmonitoring/services/flood_level.dart';
-import 'package:floodmonitoring/services/global.dart';
-import 'package:floodmonitoring/services/location.dart';
-import 'package:floodmonitoring/services/polyline.dart';
-import 'package:floodmonitoring/services/url_tile_provider.dart';
-import 'package:floodmonitoring/services/weather.dart';
-import 'package:floodmonitoring/utils/style.dart';
-import 'package:floodmonitoring/widgets/search_popup.dart';
-import 'package:floodmonitoring/widgets/vehicle_info_popup.dart';
+import 'package:floodmonitoring/core/api_config.dart';
+import 'package:floodmonitoring/core/app_manager.dart';
+import 'package:floodmonitoring/core/services/alert_service.dart';
+import 'package:floodmonitoring/core/services/category_parser.dart';
+import 'package:floodmonitoring/core/services/location.dart';
+import 'package:floodmonitoring/core/services/location_service.dart';
+import 'package:floodmonitoring/core/services/sensor_service.dart';
+import 'package:floodmonitoring/pages/map_utils/avoid_zone_checker.dart';
+import 'package:floodmonitoring/pages/map_utils/location_smoother.dart';
+import 'package:floodmonitoring/pages/map_utils/offset.dart';
+import 'package:floodmonitoring/pages/map_utils/open_layers.dart';
+import 'package:floodmonitoring/pages/map_utils/sensors_to_gjson.dart';
+import 'package:floodmonitoring/pages/map_utils/vehicle_parser.dart';
+import 'package:floodmonitoring/pages/widgets/components/map_settings_popup.dart';
+import 'package:floodmonitoring/pages/widgets/components/search_popup.dart';
+import 'package:floodmonitoring/pages/widgets/components/toast.dart';
+import 'package:floodmonitoring/pages/widgets/components/vehicle_info_popup.dart';
+import 'package:floodmonitoring/pages/widgets/flood_tips/flood_tips_parser.dart';
+import 'package:floodmonitoring/pages/widgets/map/map_bottom_button.dart';
+import 'package:floodmonitoring/pages/widgets/map/map_bottom_mode_bar.dart';
+import 'package:floodmonitoring/pages/widgets/map/map_burger_menu.dart';
+import 'package:floodmonitoring/pages/widgets/map/map_info_row.dart';
+import 'package:floodmonitoring/pages/widgets/map/map_main_sheet.dart';
+import 'package:floodmonitoring/pages/widgets/map/map_maplibre_map.dart';
+import 'package:floodmonitoring/pages/widgets/map/map_side_buttons.dart';
+import 'package:floodmonitoring/pages/widgets/map/map_small_card.dart';
+import 'package:floodmonitoring/pages/widgets/map/map_status_row.dart';
+import 'package:floodmonitoring/pages/widgets/map/map_vehicle_selection.dart';
+import 'package:floodmonitoring/utils/colors.dart';
+import 'package:floodmonitoring/utils/data_classes.dart';
+import 'package:floodmonitoring/utils/object_styles.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:delightful_toast/delight_toast.dart';
 import 'package:delightful_toast/toast/components/toast_card.dart';
+import 'package:http/http.dart' as http;
+import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:provider/provider.dart';
 import 'package:vibration/vibration.dart';
 
 import 'package:intl/intl.dart';
@@ -27,809 +55,544 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
+  // CONST VARIABLES
+  final LatLng _CENTER = const LatLng(14.600775714641369, 121.00852660400322);
+
+  // ========================================
+  // STATE / VARIABLES
+  // ========================================
+
+  //LISTENERS
+  VoidCallback? _sensorListener;
+  VoidCallback? _locationListener;
+
+  //MAP VARIABLES
   late MapLibreMapController mapController;
+  bool _mapReady = false;
+  final _smoother = LocationSmoother();
+  bool _isZoomedTilted = false;
+  DateTime _lastAlertCheck = DateTime.now();
 
-  // Fallback location (Hipodromo Street, Sta. Mesa, Manila)
-  final LatLng _center = const LatLng(14.600313076666138, 121.00900464618789);
+  MapStyleType _currentMapStyle = MapStyleType.liberty;
+  OverlayType _currentOverlaySelected = OverlayType.none;
 
-  final List<Symbol> _markers = [];
-  final List<Circle> _circles = [];
-  final List<Line> _polylines = [];
+  //END==============
 
-  CameraPosition? _lastPosition;
+  //SENSOR DATA
+  Map<String, dynamic> _latestSensorData = {};
+  String _selectedSensorId = '';
 
+  //WEATHER CARD VARIABLES
+  String _temperature = '';
+  String _iconCode = '';
+  String _description = '';
+
+  //LOCATION
+  LatLng? _smoothedCurrentPosition;
+  double _smoothedHeading = 0.0;
+
+  //NAVIGATION
+  LocationMode? _mode;
+  LatLng? _startLocationCoords;
+  LatLng? _endLocationCoords;
+  String _startLocationName = '';
+  String _endLocationName = '';
+  Map<String, dynamic>? _endMarker;
+  Map<String, dynamic>? _startMarker;
+  LatLng? _tempPosition;
+  String? _tempName;
+  Map<String, dynamic>? _tempMarker;
+
+  //VEHICLE TYPE
+  VehicleType? _selectedVehicle;
+  VehicleType? _tempSelectedVehicle;
+  String _selectedVehicleType = '';
+
+  /// Direction Sheet
   bool showDirectionSheet = false;
-  bool showSensorSheet = false;
-  bool showSensorSettingsSheet = false;
-  bool showPinConfirmationSheet = false;
-  bool showRerouteConfirmationSheet = false;
-  bool showMainSheet = true;
-
   double directionSheetHeight = 0;
-  double sensorSheetHeight = 0;
-  double sensorSettingsSheetHeight = 0;
-  double pinConfirmationSheetHeight = 0;
-  double rerouteConfirmationSheetHeight = 0;
-  double mainSheetHeight = 0;
-
   double directionDragOffset = 0;
-  double sensorDragOffset = 0;
-  double sensorSettingsDragOffset = 0;
-  double pinConfirmationDragOffset = 0;
-  double rerouteConfirmationDragOffset = 0;
-  double mainDragOffset = 0;
-
   final GlobalKey directionKey = GlobalKey();
+
+  /// Sensor Sheet
+  bool showSensorSheet = false;
+  double sensorSheetHeight = 0;
+  double sensorDragOffset = 0;
   final GlobalKey sensorKey = GlobalKey();
-  final GlobalKey sensorSettingsKey = GlobalKey();
+
+  /// Pin Confirmation Sheet
+  bool showPinConfirmationSheet = false;
+  double pinConfirmationSheetHeight = 0;
+  double pinConfirmationDragOffset = 0;
   final GlobalKey pinConfirmKey = GlobalKey();
+
+  /// Reroute Confirmation Sheet
+  bool showRerouteConfirmationSheet = false;
+  double rerouteConfirmationSheetHeight = 0;
+  double rerouteConfirmationDragOffset = 0;
   final GlobalKey rerouteConfirmKey = GlobalKey();
+
+  /// Main Sheet
+  bool showMainSheet = true;
+  double mainSheetHeight = 0;
+  double mainDragOffset = 0;
   final GlobalKey mainKey = GlobalKey();
 
-  bool showAllSensors = true;
-  bool showSensorCoverage = true;
-  bool showCriticalSensors = false;
-  bool showSensorLabels = false;
-
+  /// Alert and Routing
   bool insideAlertZone = false;
   bool nearAlertZone = false;
   bool normalRouting = true;
 
-  ///New
-  String temperature = '';
-  String weatherDescription = '';
-  String iconCode = '';
+  /// Time
+  LatLng? savedPinPosition;
 
-  String currentTime = '';
-  Timer? _timer;
+  bool displayAlert = false;
+  String? addressName;
 
-  int fetchIntervalMinutes = 1;
-  int _secondsCounter = 0;
+  // ========================================
+  // INITIALIZATION (initState)
+  // ========================================
 
   @override
   void initState() {
     super.initState();
 
-    setState(() {
-      selectedVehicle = "";
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncIfPossible();
     });
-
-    fetchDataForAllSensors();
-    _loadCurrentLocation();
-    _updateTime();
-    //_drawAvoidZones();
-    //startLocationUpdates();
-
-    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
-      _updateTime();
-
-      _secondsCounter++;
-
-      if (_secondsCounter >= fetchIntervalMinutes * 60) {
-        fetchDataForAllSensors();
-        _secondsCounter = 0;
-      }
-    });
-  }
-
-  Position? _lastUpdatedPosition;
-  StreamSubscription<Position>? _positionStream;
-
-  Future<void> _loadCurrentLocation() async {
-    Position? position = await LocationService.getCurrentLocation();
-    if (position != null) {
-      setState(() {
-        currentPosition = position;
-      });
-      getWeather();
-      _addUserMarker();
-    } else {
-      print('Could not get location.');
-    }
-  }
-
-  void _updateTime() {
-    final now = DateTime.now();
-    final formattedTime = DateFormat('hh:mm a').format(now);
-
-    setState(() {
-      currentTime = formattedTime;
-    });
-  }
-
-  void getWeather() async {
-    final weather = await loadWeather(
-      currentPosition!.latitude,
-      currentPosition!.longitude,
-    );
-
-    if (weather != null) {
-      setState(() {
-        temperature = weather['temperature'].toString();
-        weatherDescription = weather['description'];
-        iconCode = weather['iconCode'];
-      });
-    }
-  }
-
-  void startLocationUpdates() {
-    const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 1, // minimum distance in meters to trigger update
-    );
-
-    _positionStream =
-        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-          (Position position) {
-            if (_lastUpdatedPosition == null) {
-              _updatePosition(position);
-            } else {
-              double distance = Geolocator.distanceBetween(
-                _lastUpdatedPosition!.latitude,
-                _lastUpdatedPosition!.longitude,
-                position.latitude,
-                position.longitude,
-              );
-
-              if (distance >= 1) {
-                // update every 5 meters
-                _updatePosition(position);
-              }
-            }
-          },
-        );
   }
 
   @override
   void dispose() {
-    _positionStream?.cancel();
-    _timer?.cancel();
+    final locationService = context.read<LocationService>();
+    final sensorService = context.read<SensorService>();
+
+    if (_locationListener != null) {
+      locationService.removeListener(_locationListener!);
+    }
+    if (_sensorListener != null) {
+      sensorService.removeListener(_sensorListener!);
+    }
     super.dispose();
   }
 
-  void _updatePosition(Position position) {
-    setState(() {
-      currentPosition = position;
-      _lastUpdatedPosition = position;
-    });
+  // ========================================
+  // STATE / VARIABLES
+  // ========================================
 
-    _addUserMarker();
+  /// ----- MAP CONTROLLER FUNCTIONS -----
 
-    LatLng userLatLng = LatLng(position.latitude, position.longitude);
-
-    final avoidZones = buildAvoidZonesFromSensors();
-    bool inside = isInsideAvoidZone(userLatLng, avoidZones);
-    bool near = isNearAvoidZone(userLatLng, avoidZones);
-
-    if (inside) {
-      print("Position inside restricted area!");
-    } else {
-      print("Safe: Position outside avoid zones.");
-    }
-
-    if (near) {
-      print("Position near restricted area!");
-      setState(() {
-        startAlert();
-      });
-    } else {
-      print("Safe: Position far avoid zones.");
-      stopAlert();
-    }
-  }
-
-  bool displayAlert = false;
-  Timer? _alertTimer;
-
-  void startAlert() {
-    if (!nearAlertZone) {
-      nearAlertZone = true;
-      showNearFloodAlertToast(context);
-      Vibration.vibrate(duration: 100, amplitude: 255);
-
-      // Blink alert
-      _alertTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
-        if (!nearAlertZone) {
-          timer.cancel();
-        } else {
-          setState(() {
-            displayAlert = !displayAlert;
-          });
-        }
-      });
-
-      // Auto stop after 5 minutes
-      Future.delayed(const Duration(minutes: 5), () {
-        stopAlert();
-      });
-    }
-  }
-
-  void stopAlert() {
-    nearAlertZone = false;
-    _alertTimer?.cancel();
-    setState(() {
-      nearAlertZone = false;
-      displayAlert = false;
-    });
-  }
-
-  Map<String, Map<String, dynamic>> sensors = {};
-
-  String? selectedSensorId;
-
-  /// Get Update For Specific Sensor
-  Future<void> fetchDataForSensor(String sensorId) async {
-    final sensor = sensors[sensorId];
-    if (sensor == null) return;
-
-    final String token = sensor['token'];
-    final String pin = sensor['pin']; // ✅ NEW
-
-    final data = await BlynkService().fetchDistance(token, pin);
-
-    setState(() {
-      sensors[sensorId]!['sensorData'] = data;
-    });
-
-    print("Updated sensor $sensorId → $data");
-  }
-
-  /// Get Update For All Sensors
-  Future<void> fetchDataForAllSensors() async {
-    print("fetchDataForAllSensors");
-
-    List<Future<void>> futures = [];
-
-    sensors.forEach((sensorId, sensor) {
-      final String token = sensor['token'];
-      final String pin = sensor['pin']; // ✅ NEW
-
-      futures.add(
-        BlynkService().fetchDistance(token, pin).then((data) {
-          setState(() {
-            sensors[sensorId]!['sensorData'] = data;
-          });
-
-          print("Updated sensor $sensorId ($pin)");
-        }),
-      );
-    });
-
-    await Future.wait(futures);
-
-    print("All sensors updated");
-  }
-
-  void _onMapCreated(GoogleMapController controller) {
+  /// ON MAP CREATED
+  void _onMapCreated(MapLibreMapController controller) async {
     mapController = controller;
 
-    setState(() async {
-      _markers.clear(); // Optional: clear previous markers
+    final nfBytes = await rootBundle.load('assets/images/marker_nf.png');
+    final patvBytes = await rootBundle.load('assets/images/marker_patv.png');
+    final nplvBytes = await rootBundle.load('assets/images/marker_nplv.png');
+    final npatvBytes = await rootBundle.load('assets/images/marker_npatv.png');
+    final pinBytes = await rootBundle.load(
+      'assets/images/selected_location.png',
+    );
+    final userBytes = await rootBundle.load('assets/images/user_location.png');
 
-      // Load custom sensor marker image once
-      final BitmapDescriptor sensorIcon = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(
-          size: Size(48, 48),
-        ), // size of your sensor image
-        'assets/images/sensor_location.png',
-      );
+    await mapController.addImage("nf", nfBytes.buffer.asUint8List());
+    await mapController.addImage("patv", patvBytes.buffer.asUint8List());
+    await mapController.addImage("nplv", nplvBytes.buffer.asUint8List());
+    await mapController.addImage("npatv", npatvBytes.buffer.asUint8List());
+    await mapController.addImage("location-pin", pinBytes.buffer.asUint8List());
+    await mapController.addImage("user-icon", userBytes.buffer.asUint8List());
 
-      sensors.forEach((id, sensor) {
-        _markers.add(
-          Marker(
-            markerId: MarkerId(id),
-            position: sensor['position'],
-            icon: sensorIcon, // <-- use custom sensor image
-            infoWindow: showSensorLabels
-                ? InfoWindow(title: id)
-                : InfoWindow.noText,
-            anchor: const Offset(0.5, 0.5),
-            onTap: () => _onSensorTap(id, sensor),
-          ),
-        );
-      });
-    });
-  }
-
-  LatLng _offsetPosition(LatLng original, double offsetInDegrees) {
-    return LatLng(original.latitude - offsetInDegrees, original.longitude);
-  }
-
-  ///Sensor Gets Tapped
-  Future<void> _onSensorTap(String id, Map<String, dynamic> sensor) async {
-    final LatLng sensorPos = sensor['position'];
-    final LatLng offsetTarget = _offsetPosition(sensorPos, 0.0090);
-
-    mapController.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(target: offsetTarget, zoom: 15),
+    await mapController.addSource(
+      "sensor-source",
+      GeojsonSourceProperties(
+        data: {
+          "type": "FeatureCollection",
+          "features": [
+            {
+              "type": "Feature",
+              "geometry": {
+                "type": "Point",
+                "coordinates": [0.0, 0.0],
+              },
+              "properties": {"icon": "nf", "sensorId": "init"},
+            },
+          ],
+        },
       ),
     );
 
-    await fetchDataForSensor(id);
-
-    setState(() {
-      selectedSensorId = id;
-      showDirectionSheet = false;
-      showSensorSettingsSheet = false;
-
-      cancelPinSelection();
-
-      showSensorSheet = true;
-    });
-
-    // Update circle for the selected sensor
-    if (showSensorCoverage) {
-      _circles.removeWhere((c) => c.circleId.value.startsWith(id));
-      _circles.add(
-        Circle(
-          circleId: CircleId('${id}_circle'),
-          center: sensor['position'],
-          radius: 100,
-          strokeWidth: 2,
-          strokeColor: _getStatusColor(sensor['sensorData']['status']),
-          fillColor: _getStatusColor(
-            sensor['sensorData']['status'],
-          ).withOpacity(0.3),
-        ),
-      );
-    }
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case "Safe":
-        return color_safe;
-      case "Warning":
-        return color_warning;
-      case "Danger":
-        return color_danger;
-      default:
-        return Colors.black;
-    }
-  }
-
-  /// Add Users Marker
-  void _addUserMarker() async {
-    if (currentPosition == null) return;
-
-    final userLatLng = LatLng(
-      currentPosition!.latitude,
-      currentPosition!.longitude,
-    );
-
-    // Load custom image as marker
-    final BitmapDescriptor userIcon = await BitmapDescriptor.fromAssetImage(
-      const ImageConfiguration(size: Size(48, 48)), // size of your pin
-      'assets/images/user_location.png',
-    );
-
-    setState(() {
-      // Remove old user marker
-      _markers.removeWhere((m) => m.markerId.value == 'user');
-
-      // Remove old circles (optional)
-      _circles.removeWhere(
-        (c) =>
-            c.circleId.value == 'user_small' ||
-            c.circleId.value == 'user_medium',
-      );
-
-      // Add user marker with custom image
-      _markers.add(
-        Marker(
-          markerId: const MarkerId('user'),
-          position: userLatLng,
-          icon: userIcon, // <-- custom image
-          anchor: const Offset(0.5, 0.5),
-          infoWindow: const InfoWindow(title: 'Your Location'),
-        ),
-      );
-    });
-  }
-
-  void _refreshSensorMarkers() async {
-    final BitmapDescriptor sensorIcon = await BitmapDescriptor.fromAssetImage(
-      const ImageConfiguration(size: Size(48, 48)),
-      'assets/images/sensor_location.png',
-    );
-
-    setState(() {
-      // Remove all sensors first
-      _markers.removeWhere((m) => sensors.containsKey(m.markerId.value));
-
-      // If showAllSensors == false → stop here (no markers added)
-      if (!showAllSensors) return;
-
-      // Otherwise add all sensors again
-      sensors.forEach((id, sensor) {
-        _markers.add(
-          Marker(
-            markerId: MarkerId(id),
-            position: sensor['position'],
-            icon: sensorIcon,
-            anchor: const Offset(0.5, 0.5),
-            infoWindow: showSensorLabels
-                ? InfoWindow(title: id)
-                : InfoWindow.noText,
-            onTap: () => _onSensorTap(id, sensor),
-          ),
-        );
-      });
-    });
-  }
-
-  /// Locate user
-  void _goToUser() async {
-    if (currentPosition == null) return;
-
-    final userLatLng = LatLng(
-      currentPosition!.latitude,
-      currentPosition!.longitude,
-    );
-
-    mapController.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: userLatLng,
-          zoom: 17, // set desired zoom level
-          tilt: 0,
-          bearing: 0,
-        ),
-      ),
-    );
-  }
-
-  bool _isZoomedTilted = false;
-
-  /// Reset map orientation (bearing & tilt)
-  void _onCameraMove(CameraPosition position) {
-    _lastPosition = position;
-  }
-
-  void _resetOrientation() async {
-    if (_lastPosition == null) return;
-
-    // Step 1: Reset bearing to 0
-    await mapController.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: _lastPosition!.target,
-          zoom: _lastPosition!.zoom, // keep current zoom
-          tilt: 0, // reset tilt
-          bearing: 0, // reset orientation
-        ),
+    await mapController.addSource(
+      "sensor-radius-source",
+      GeojsonSourceProperties(
+        data: {"type": "FeatureCollection", "features": []},
       ),
     );
 
-    // Step 2: Apply zoom & tilt if toggled
-    if (!_isZoomedTilted) {
-      mapController.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: _lastPosition!.target,
-            zoom: 18,
-            tilt: 80,
-            bearing: 0,
-          ),
-        ),
-      );
-    } else {
-      // Optional: Reset zoom back to normal
-      mapController.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: _lastPosition!.target,
-            zoom: 17,
-            tilt: 0,
-            bearing: 0,
-          ),
-        ),
-      );
-    }
-
-    _isZoomedTilted = !_isZoomedTilted;
-  }
-
-  void showAppToast(
-    BuildContext context, {
-    required String message,
-    required String status,
-    double? distance,
-  }) {
-    Color bgColor;
-    IconData icon;
-
-    switch (status.toLowerCase()) {
-      case 'safe':
-        bgColor = Colors.green;
-        icon = Icons.check_circle;
-        break;
-      case 'warning':
-        bgColor = Colors.orange;
-        icon = Icons.warning_amber_rounded;
-        break;
-      case 'danger':
-        bgColor = Colors.red;
-        icon = Icons.dangerous_rounded;
-        break;
-      default:
-        bgColor = Colors.grey;
-        icon = Icons.info_outline;
-    }
-
-    final displayMessage = distance != null
-        ? "$message (Distance: ${distance.toStringAsFixed(1)} cm)"
-        : message;
-
-    DelightToastBar(
-      builder: (context) => ToastCard(
-        leading: Icon(icon, color: Colors.white, size: 28),
-        title: Text(
-          displayMessage,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-          ),
-        ),
-        color: bgColor,
+    await mapController.addSource(
+      "user-source",
+      GeojsonSourceProperties(
+        data: {"type": "FeatureCollection", "features": []},
       ),
-      autoDismiss: true,
-      snackbarDuration: Durations.extralong4,
-    ).show(context);
+    );
+
+    await mapController.addSource(
+      "route-source",
+      GeojsonSourceProperties(
+        data: {"type": "FeatureCollection", "features": []},
+      ),
+    );
+
+    await mapController.addSource(
+      "temp-pin-source",
+      GeojsonSourceProperties(
+        data: {"type": "FeatureCollection", "features": []},
+      ),
+    );
+
+    await mapController.addLayer(
+      "sensor-radius-source",
+      "sensor-radius-layer",
+      FillLayerProperties(
+        fillColor: [
+          "match",
+          ["get", "icon"],
+
+          "nf",
+          "#00ff00",
+
+          "patv",
+          "#0000ff",
+
+          "nplv",
+          "#ffa500",
+
+          "npatv",
+          "#ff0000",
+
+          "#888888",
+        ],
+
+        fillOpacity: 0.30,
+      ),
+    );
+
+    await mapController.addLineLayer(
+      "route-source",
+      "route-layer-border",
+      LineLayerProperties(
+        lineColor: "#000000",
+        lineWidth: 8,
+        lineOpacity: 0.9,
+        lineCap: "round",
+        lineJoin: "round",
+      ),
+    );
+
+    await mapController.addLineLayer(
+      "route-source",
+      "route-layer-main",
+      LineLayerProperties(
+        lineColor: "#1E90FF",
+        lineWidth: 5,
+        lineOpacity: 1.0,
+        lineCap: "round",
+        lineJoin: "round",
+      ),
+    );
+
+    await mapController.addLayer(
+      "sensor-source",
+      "sensor-layer",
+      SymbolLayerProperties(
+        iconImage: ["get", "icon"],
+        iconSize: 1.0,
+        iconAllowOverlap: true,
+        iconIgnorePlacement: true,
+      ),
+    );
+
+    await mapController.addLayer(
+      "temp-pin-source",
+      "temp-pin-layer",
+      SymbolLayerProperties(
+        iconImage: "location-pin",
+        iconSize: 1.0,
+        iconAllowOverlap: true,
+        iconIgnorePlacement: true,
+        iconAnchor: "bottom",
+      ),
+    );
+
+    await mapController.addLayer(
+      "user-source",
+      "user-layer",
+      SymbolLayerProperties(
+        iconImage: "user-icon",
+        iconSize: 1.0,
+        iconAllowOverlap: true,
+        iconIgnorePlacement: true,
+        iconRotate: ["get", "rotation"],
+        iconAnchor: "bottom",
+      ),
+    );
+    _mapReady = true;
+    _bindSensorListener();
+    _bindLocationListener();
+    _syncIfPossible();
   }
 
-  LatLng? savedPinPosition; // the CURRENT official pin
-  Marker? savedPinMarker; // marker for the official pin
-  Map<String, dynamic> savedPlace = {"name": "", "location": LatLng(0.0, 0.0)};
+  Future<void> _syncSensorsToMap(Map rawData) async {
+    final sensors = rawData.entries.map((entry) {
+      final sensorId = entry.key;
+      final data = entry.value as Map<String, dynamic>;
+      final latlong = data['latlong'] as List;
 
-  LatLng? tappedPosition; // temporary pin when user taps on map
-  Marker? tappedMarker;
-  Map<String, dynamic> currentPlace = {
-    "name": "",
-    "location": LatLng(0.0, 0.0),
-  };
+      return SensorMapVisuals(
+        id: sensorId,
+        lat: latlong[0],
+        lng: latlong[1],
+        radius: (data['radius'] ?? 20).toDouble(),
+        status: data['flood_cat'] ?? 'unknown',
+      );
+    }).toList();
 
-  void _onMapTap(LatLng position) async {
-    if (selectedVehicle.isEmpty || showMainSheet) {
-      print("No vehicle selected. Tap ignored.");
+    final pointGeoJson = buildSensorPoints(sensors);
+    final circleGeoJson = buildSensorCircles(sensors);
+
+    mapController.setGeoJsonSource("sensor-source", pointGeoJson);
+    mapController.setGeoJsonSource("sensor-radius-source", circleGeoJson);
+  }
+
+  void _bindSensorListener() {
+    final sensorService = context.read<SensorService>();
+
+    _sensorListener = () async {
+      debugPrint("Sensor listener triggered");
+      await _syncIfPossible();
+    };
+
+    sensorService.addListener(_sensorListener!);
+  }
+
+  Future<void> _syncIfPossible() async {
+    if (!_mapReady) {
       return;
     }
 
-    print(
-      "Saved Pin: ${savedPinPosition?.latitude}, ${savedPinPosition?.longitude}",
-    );
-    print("User: ${currentPosition!.latitude}, ${currentPosition!.longitude}");
+    final sensorService = context.read<SensorService>();
 
-    final BitmapDescriptor pinIcon = await BitmapDescriptor.fromAssetImage(
-      const ImageConfiguration(size: Size(48, 48)),
-      'assets/images/selected_location.png',
-    );
+    _latestSensorData = sensorService.latestSensorData;
+    _temperature = sensorService.temperature;
+    _iconCode = sensorService.iconCode;
+    _description = sensorService.description;
 
-    setState(() {
-      // Remove previous tapped marker
-      if (tappedMarker != null) _markers.remove(tappedMarker);
-
-      // Add new tapped marker
-      tappedMarker = Marker(
-        markerId: const MarkerId('tapped_pin'),
-        position: position,
-        icon: pinIcon,
-        anchor: const Offset(0.5, 1.0),
-      );
-      _markers.add(tappedMarker!);
-
-      // Update currentPlace
-      currentPlace = {
-        "name": "", // leave empty since user just tapped
-        "location": position,
-      };
-      tappedPosition = position;
-
-      // Show confirmation sheet
-      showPinConfirmationSheet = true;
-      showDirectionSheet = false;
-      showSensorSheet = false;
-      showSensorSettingsSheet = false;
-      showRerouteConfirmationSheet = false;
-    });
-
-    // Draw polyline from user to tapped pin
-    if (currentPosition != null) {
-      _drawRoute(
-        LatLng(currentPosition!.latitude, currentPosition!.longitude),
-        position, // use the tapped location
-      );
-    }
-
-    // LatLng tap = tappedPosition!;
-    // bool inside = isInsideAvoidZone(tap, avoidZones);
-    //
-    // if (inside) {
-    //   print("Tapped inside restricted area!");
-    //   setState(() {
-    //     insideAlertZone = true;
-    //   });
-    // } else {
-    //   print("Safe: tapped outside avoid zones.");
-    //   setState(() {
-    //     insideAlertZone = false;
-    //   });
-    // }
-
-    Position fakePosition = Position(
-      latitude: position.latitude,
-      longitude: position.longitude,
-      timestamp: DateTime.now(),
-      accuracy: 1,
-      altitude: 0,
-      altitudeAccuracy: 1,
-      heading: 0,
-      headingAccuracy: 1,
-      speed: 0,
-      speedAccuracy: 1,
-    );
-
-    _updatePosition(fakePosition);
+    await _syncSensorsToMap(_latestSensorData);
   }
 
+  void _bindLocationListener() {
+    final locationService = context.read<LocationService>();
+
+    _locationListener = () {
+      final pos = locationService.currentPosition;
+      final heading = locationService.smoothedHeading;
+      if (pos == null || !_mapReady) return;
+
+      _handleLocationUpdate(pos, heading);
+    };
+
+    locationService.addListener(_locationListener!);
+  }
+
+  void _handleLocationUpdate(Position position, double heading) {
+    final rawLatLng = LatLng(position.latitude, position.longitude);
+    _smoothedCurrentPosition = _smoother.smoothPosition(rawLatLng);
+    _smoothedHeading = heading;
+
+    _updateUserMarker(_smoothedCurrentPosition!, _smoothedHeading);
+    // _handleRouting(smooth);
+    _handleAlerts(_smoothedCurrentPosition!);
+  }
+
+  void _updateUserMarker(LatLng pos, double rotation) {
+    mapController.setGeoJsonSource("user-source", {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "geometry": {
+            "type": "Point",
+            "coordinates": [pos.longitude, pos.latitude],
+          },
+          "properties": {"rotation": rotation},
+        },
+      ],
+    });
+  }
+
+  void _handleAlerts(LatLng userPos) {
+    final now = DateTime.now();
+    if (now.difference(_lastAlertCheck).inMilliseconds < 500) return;
+    _lastAlertCheck = now;
+
+    if (_selectedVehicle == null) return;
+
+    final alertService = context.read<AlertService>();
+
+    final avoidZones = buildAvoidZonesFromSensors(
+      _latestSensorData,
+      _selectedVehicle!,
+    );
+
+    final inside = isInsideAvoidZone(userPos, avoidZones);
+    final near = isNearAvoidZone(userPos, avoidZones);
+
+    alertService.evaluate(inside || near);
+  }
+
+  /// ON MAP TAP
+  void _onMapTap(LatLng position) async {
+    setState(() {
+      showMainSheet = false;
+    });
+
+    final rawPoint = await mapController.toScreenLocation(position);
+
+    final screenPoint = Point<double>(
+      rawPoint.x.toDouble(),
+      rawPoint.y.toDouble(),
+    );
+
+    final sensorFeatures = await mapController.queryRenderedFeatures(
+      screenPoint,
+      ["sensor-layer"],
+      null,
+    );
+
+    if (sensorFeatures.isNotEmpty) {
+      final firstSensorFeature = sensorFeatures.first;
+
+      _selectedSensorId = firstSensorFeature["properties"]?["sensorId"];
+
+      setState(() {
+        final appManager = context.read<AppManager>();
+        appManager.selectedSensorId = _selectedSensorId;
+        showDirectionSheet = false;
+        cancelPinSelection();
+        showSensorSheet = true;
+      });
+      return;
+    }
+  }
+
+  /// ----- SIDE BUTTON FUNCTIONS -----
+  /// GO TO USER
+  void _goToUser() {
+    if (_smoothedCurrentPosition == null) return;
+
+    final userLatLng = LatLng(
+      _smoothedCurrentPosition!.latitude,
+      _smoothedCurrentPosition!.longitude,
+    );
+
+    mapController.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: userLatLng, zoom: 17, tilt: 0, bearing: 0),
+      ),
+    );
+  }
+
+  /// RESET CAMERA ORIENTATION
+  void _resetOrientation() async {
+    final pos = mapController.cameraPosition;
+    if (pos == null) return;
+
+    final target = pos.target;
+
+    await mapController.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: target, zoom: pos.zoom, tilt: 0, bearing: 0),
+      ),
+    );
+
+    _isZoomedTilted = !_isZoomedTilted;
+
+    final newCamera = CameraPosition(
+      target: target,
+      zoom: _isZoomedTilted ? 18 : 17,
+      tilt: _isZoomedTilted ? 80 : 0,
+      bearing: 0,
+    );
+
+    await mapController.animateCamera(
+      CameraUpdate.newCameraPosition(newCamera),
+    );
+  }
+
+  /// ----- CANCEL PIN SELECTION -----
   void cancelPinSelection() {
     setState(() {
-      // Remove temporary tapped pin
-      if (tappedMarker != null) {
-        _markers.remove(tappedMarker);
-      }
-      tappedMarker = null;
-      tappedPosition = null;
+      _endLocationCoords = null;
+      _startLocationCoords = null;
+      _tempPosition = null;
+      _endLocationName = "";
+      _startLocationName = "";
+      _tempName = null;
+      _endMarker = {};
+      _startMarker = {};
+      _tempMarker = {};
+      _mode = null;
 
-      // Clear temporary/current place
-      currentPlace = {"name": "", "location": LatLng(0.0, 0.0)};
-    });
-
-    // Restore saved pin → draw route again if exists
-    if (savedPinMarker != null && currentPosition != null) {
-      _drawRoute(
-        LatLng(currentPosition!.latitude, currentPosition!.longitude),
-        savedPinMarker!.position,
-      );
-    } else {
-      setState(() {
-        _polylines.clear();
-      });
-    }
-
-    // Hide confirmation sheet and remove sensor circles
-    setState(() {
       showPinConfirmationSheet = false;
-      _circles.removeWhere((c) => c.circleId.value.startsWith('sensor'));
+    });
+
+    _clearRoute();
+    _clearTempPins();
+  }
+
+  void _clearRoute() {
+    mapController.setGeoJsonSource("route-source", {
+      "type": "FeatureCollection",
+      "features": [],
     });
   }
 
-  // Set<Polygon> _polygons = {};
-  // void _drawAvoidZones() {
-  //   Set<Polygon> polygons = {};
-  //
-  //   for (int i = 0; i < avoidZones.length; i++) {
-  //     final zone = avoidZones[i];
-  //
-  //     final center = zone["position"] as LatLng;
-  //     final radius = zone["radius"] as double;
-  //
-  //     // Convert radius in meters to approximate degrees
-  //     final delta = radius / 111000;
-  //
-  //     // Square corners (clockwise)
-  //     final topLeft = LatLng(center.latitude + delta, center.longitude - delta); // A
-  //     final topRight = LatLng(center.latitude + delta, center.longitude + delta); // B
-  //     final bottomRight = LatLng(center.latitude - delta, center.longitude + delta); // C
-  //     final bottomLeft = LatLng(center.latitude - delta, center.longitude - delta); // D
-  //
-  //     final points = [topLeft, topRight, bottomRight, bottomLeft, topLeft]; // close the polygon
-  //
-  //     polygons.add(Polygon(
-  //       polygonId: PolygonId("avoid_zone_$i"),
-  //       points: points,
-  //       fillColor: Colors.red.withOpacity(0.3),
-  //       strokeColor: Colors.red,
-  //       strokeWidth: 2,
-  //     ));
-  //   }
-  //
-  //   setState(() {
-  //     _polygons = polygons;
-  //   });
-  // }
+  void _clearTempPins() {
+    mapController.setGeoJsonSource("temp-pin-source", {
+      "type": "FeatureCollection",
+      "features": [],
+    });
+  }
 
-  bool isInsideAvoidZone(
-    LatLng usersPosition,
-    List<Map<String, dynamic>> avoidZones,
+  /// ----- BUILD AVOID ZONES FROM SENSORS -----
+  List<Map<String, dynamic>> buildAvoidZonesFromSensors(
+    Map<String, dynamic> rawSensors,
+    VehicleType vehicle,
   ) {
-    for (var zone in avoidZones) {
-      LatLng zoneCenter = zone["position"];
-      double radius = zone["radius"]; // in meters
+    final zones = <Map<String, dynamic>>[];
 
-      double distance = Geolocator.distanceBetween(
-        usersPosition.latitude,
-        usersPosition.longitude,
-        zoneCenter.latitude,
-        zoneCenter.longitude,
+    final allowed =
+        VehicleDict.vehicleList[vehicle]?['passable_flood_cat']
+            as List<FloodStatusLevels>?;
+
+    if (allowed == null) return zones;
+
+    rawSensors.forEach((sensorId, data) {
+      final latlong = data['latlong'] as List<dynamic>?;
+      final statusRaw = data['flood_cat'];
+
+      if (latlong == null || statusRaw == null) return;
+
+      final status = FloodStatusLevels.values.firstWhere(
+        (e) => e.name == statusRaw,
+        orElse: () => FloodStatusLevels.nf,
       );
 
-      if (distance <= radius) {
-        return true; // inside this zone
-      }
-    }
-    return false; // not inside any zone
-  }
-
-  bool isNearAvoidZone(
-    LatLng usersPosition,
-    List<Map<String, dynamic>> avoidZones,
-  ) {
-    for (var zone in avoidZones) {
-      LatLng zoneCenter = zone["position"];
-      double radius = zone["radius"]; // in meters
-
-      double distance = Geolocator.distanceBetween(
-        usersPosition.latitude,
-        usersPosition.longitude,
-        zoneCenter.latitude,
-        zoneCenter.longitude,
-      );
-
-      if (distance <= radius + 500) {
-        return true; // near this zone
-      }
-    }
-    return false; // far any zone
-  }
-
-  List<LatLng> _generateCirclePolygon(
-    LatLng center,
-    double radius,
-    int points,
-  ) {
-    List<LatLng> polygonPoints = [];
-    final R = 6371000; // Earth radius in meters
-    final dRad = radius / R;
-
-    for (int i = 0; i < points; i++) {
-      final theta = 2 * pi * i / points;
-      final lat =
-          asin(
-            sin(center.latitude * pi / 180) * cos(dRad) +
-                cos(center.latitude * pi / 180) * sin(dRad) * cos(theta),
-          ) *
-          180 /
-          pi;
-      final lng =
-          center.longitude +
-          atan2(
-                sin(theta) * sin(dRad) * cos(center.latitude * pi / 180),
-                cos(dRad) -
-                    sin(center.latitude * pi / 180) * sin(lat * pi / 180),
-              ) *
-              180 /
-              pi;
-      polygonPoints.add(LatLng(lat, lng));
-    }
-
-    return polygonPoints;
-  }
-
-  List<Map<String, dynamic>> buildAvoidZonesFromSensors() {
-    List<Map<String, dynamic>> zones = [];
-
-    sensors.forEach((sensorId, sensor) {
-      final sensorData = sensor['sensorData'];
-      final status = sensorData?['status'];
-
-      if (status == 'Warning' || status == 'Danger') {
+      // If vehicle CANNOT pass this flood status → it's an avoid zone
+      if (!allowed.contains(status)) {
         zones.add({
-          "position": sensor['position'],
-          "radius": sensor['radius'], // from sensor config
+          "position": LatLng(latlong[0], latlong[1]),
+          "radius": data['radius'] ?? 50.0,
+          "status": status,
         });
       }
     });
@@ -837,520 +600,422 @@ class _MapScreenState extends State<MapScreen> {
     return zones;
   }
 
+  /// ----- DRAW ROUTE -----
   void _drawRoute(LatLng start, LatLng end) async {
-    // ✅ Build avoid zones dynamically
-    final avoidZones = buildAvoidZonesFromSensors();
+    final vehicleConverted = convertVehicle(_selectedVehicle!);
 
-    final route = await PolylineService.getRoute(
-      start,
-      end,
-      normalRouting: normalRouting,
-      avoidZones: avoidZones,
+    final url = Uri.parse(ApiConfig.safeRoute).replace(
+      queryParameters: {
+        'start': '${start.longitude},${start.latitude}',
+        'end': '${end.longitude},${end.latitude}',
+        'vehicle': vehicleConverted,
+      },
     );
 
-    setState(() {
-      _polylines.clear();
-      _polylines.add(
-        Polyline(
-          polylineId: const PolylineId("route"),
-          points: route,
-          color: Colors.blue,
-          width: 5,
-        ),
-      );
-    });
+    debugPrint("DRAW ROUTE CALLED");
+    debugPrint("START: $start");
+    debugPrint("END: $end");
+
+    final response = await http.get(url);
+
+    debugPrint("STATUS: ${response.statusCode}");
+    debugPrint("BODY: ${response.body}");
+
+    if (response.statusCode != 200) {
+      debugPrint("Route request failed");
+      return;
+    }
+
+    final decoded = jsonDecode(response.body);
+
+    if (decoded["success"] != true) {
+      debugPrint("Invalid route response");
+      return;
+    }
+
+    final routeGeometry = decoded["route"];
+
+    final geojson = {
+      "type": "FeatureCollection",
+      "features": [
+        {"type": "Feature", "geometry": routeGeometry, "properties": {}},
+      ],
+    };
+
+    debugPrint(jsonEncode(geojson));
+
+    await mapController.setGeoJsonSource("route-source", geojson);
   }
 
+  /// ----- OPEN PLACE SEARCH -----
   Future<void> openPlaceSearch() async {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (_) => const PlaceSearchPopup(),
+        builder: (_) => PlaceSearchPopup(mode: _mode),
       ),
     );
 
-    if (result != null) {
-      final LatLng position = result['latLng'];
-      final String name = result['name'];
+    if (result == null) return;
 
-      print('Selected place: $name');
-      print('Coordinates: ${position.latitude}, ${position.longitude}');
+    final LatLng? position = result['latLng'];
+    final String name = result['name'];
 
-      // Create pin icon
-      final BitmapDescriptor pinIcon = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(size: Size(48, 48)),
-        'assets/images/selected_location.png',
-      );
+    _handleTempLocation(position, name);
+  }
 
-      setState(() {
-        // Remove previous tapped marker
-        if (tappedMarker != null) _markers.remove(tappedMarker);
+  void _handleTempLocation(LatLng? position, String name) {
+    if (position == null) return;
 
-        // Add new tapped marker
-        tappedMarker = Marker(
-          markerId: const MarkerId('tapped_pin'),
-          position: position,
-          icon: pinIcon,
-          anchor: const Offset(0.5, 1.0),
-        );
-        _markers.add(tappedMarker!);
-        tappedPosition = position;
+    setState(() {
+      // TEMP ONLY
+      _tempPosition = position;
+      _tempName = name;
 
-        // Set currentPlace (temporary)
-        currentPlace = {"name": name, "location": position};
+      _tempMarker = {
+        "type": "Feature",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [position.longitude, position.latitude],
+        },
+        "properties": {"type": "temp"},
+      };
 
-        // Show confirmation sheet
-        showPinConfirmationSheet = true;
-        showDirectionSheet = false;
-        showSensorSheet = false;
-        showSensorSettingsSheet = false;
-        showRerouteConfirmationSheet = false;
-      });
+      showPinConfirmationSheet = true;
+    });
 
-      if (currentPosition != null) {
-        LatLng userPosition = LatLng(
-          currentPosition!.latitude,
-          currentPosition!.longitude,
-        );
+    _handleDestinationCamera(position);
+    _updateTempPin();
+  }
 
-        // Draw polyline to temporary/current place
-        _drawRoute(userPosition, position);
+  void _updateTempPin() {
+    if (!_mapReady) return;
 
-        // Zoom to fit both locations
-        LatLngBounds bounds = LatLngBounds(
-          southwest: LatLng(
-            min(userPosition.latitude, position.latitude),
-            min(userPosition.longitude, position.longitude),
-          ),
-          northeast: LatLng(
-            max(userPosition.latitude, position.latitude),
-            max(userPosition.longitude, position.longitude),
-          ),
-        );
+    final features = <Map<String, dynamic>>[];
 
-        mapController.animateCamera(CameraUpdate.newLatLngBounds(bounds, 100));
-      }
+    if (_tempMarker != null) {
+      features.add(_tempMarker!);
+    }
+
+    final start = buildPointFeature(_startLocationCoords, "start");
+    final end = buildPointFeature(_endLocationCoords, "end");
+
+    if (start != null) features.add(start);
+    if (end != null) features.add(end);
+
+    mapController.setGeoJsonSource("temp-pin-source", {
+      "type": "FeatureCollection",
+      "features": features,
+    });
+  }
+
+  void _updateRouteView() {
+    if (_startLocationCoords != null && _endLocationCoords != null) {
+      _fitBothEndsToView();
+      _drawRoute(_startLocationCoords!, _endLocationCoords!);
     }
   }
 
-  //Rem/ove
-  // Vehicle tile widget with selection effect
-  Widget vehicleTile(
-    String name,
-    String iconPath,
-    void Function(void Function()) setState,
-  ) {
-    bool isSelected = selectedVehicle == name;
-
-    // Static description and thresholds
-    String description = "";
-    String safe = "";
-    String warning = "";
-    String danger = "";
-    Color safeColor = Colors.green;
-    Color warningColor = Colors.orange;
-    Color dangerColor = Colors.red;
-
-    if (name == "Motorcycle") {
-      description =
-          "Motorcycles are very vulnerable to floods even at low levels. "
-          "Unlike cars and trucks, they can easily lose balance or submerge. "
-          "Extra caution is needed when riding in flood-prone areas.";
-      safe = "0–20 cm";
-      warning = "20.1–50 cm";
-      danger = "50.1+ cm";
-      safeColor = Colors.green;
-      warningColor = Colors.orange;
-      dangerColor = Colors.red;
-    } else if (name == "Car") {
-      description =
-          "Cars can normally withstand floods that are below the door step. "
-          "They are less vulnerable than motorcycles but may still be at risk if water rises higher than the engine level.";
-      safe = "0–15 cm";
-      warning = "15.1–30 cm";
-      danger = "30.1+ cm";
-      safeColor = Colors.green;
-      warningColor = Colors.orange;
-      dangerColor = Colors.red;
-    } else if (name == "Truck") {
-      description =
-          "Trucks can handle large floods because of their size and higher chassis. "
-          "They are the safest among common vehicles in deep water, but caution is still advised in extreme flood conditions.";
-      safe = "0–40 cm";
-      warning = "40.1–60 cm";
-      danger = "60.1+ cm";
-      safeColor = Colors.green;
-      warningColor = Colors.orange;
-      dangerColor = Colors.red;
+  /// ----- HANDLE DESTINATION CAMERA -----
+  void _handleDestinationCamera(LatLng position) {
+    if (_startLocationCoords != null && _endLocationCoords != null) {
+      _fitBothEndsToView();
+      _drawRoute(_startLocationCoords!, _endLocationCoords!);
+      return;
     }
+    _singleZoomToArea(position);
+  }
 
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          selectedVehicle = name;
-        });
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.15),
-              spreadRadius: 1,
-              blurRadius: 3,
-              offset: const Offset(0, 0),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
-              decoration: BoxDecoration(
-                color: isSelected ? color1 : Colors.white,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                children: [
-                  Image.asset(
-                    iconPath,
-                    width: 28,
-                    height: 28,
-                    color: isSelected ? Colors.white : color2,
-                    colorBlendMode: BlendMode.srcIn,
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    name,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: isSelected ? Colors.white : Colors.black,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+  void _fitBothEndsToView() {
+    final start = _startLocationCoords!;
+    final end = _endLocationCoords!;
 
-            // --- Animated Description Section ---
-            AnimatedSize(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeInOut,
-              child: isSelected
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            description,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Colors.black87,
-                              height: 1.4,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Text(
-                                "Safe: ",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: safeColor,
-                                ),
-                              ),
-                              Text(safe, style: TextStyle(color: safeColor)),
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              Text(
-                                "Warning: ",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: warningColor,
-                                ),
-                              ),
-                              Text(
-                                warning,
-                                style: TextStyle(color: warningColor),
-                              ),
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              Text(
-                                "Danger: ",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: dangerColor,
-                                ),
-                              ),
-                              Text(
-                                danger,
-                                style: TextStyle(color: dangerColor),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-          ],
-        ),
+    final bounds = LatLngBounds(
+      southwest: LatLng(
+        min(start.latitude, end.latitude),
+        min(start.longitude, end.longitude),
+      ),
+      northeast: LatLng(
+        max(start.latitude, end.latitude),
+        max(start.longitude, end.longitude),
+      ),
+    );
+
+    mapController.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        bounds,
+        left: 120,
+        top: 120,
+        right: 120,
+        bottom: 120,
       ),
     );
   }
 
-  void showVehicleErrorToast(BuildContext context) {
-    DelightToastBar(
-      builder: (context) => ToastCard(
-        leading: const Icon(Icons.error_outline, color: Colors.red, size: 28),
-        title: const Text(
-          "Please select a vehicle to continue",
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-        ),
-        color: Colors.white, // background white
+  void _singleZoomToArea(LatLng position) {
+    mapController.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: position, zoom: 16),
       ),
-      autoDismiss: true,
-      snackbarDuration: Durations.extralong4,
-    ).show(context);
+    );
   }
 
-  void showNearFloodAlertToast(BuildContext context) {
-    DelightToastBar(
-      builder: (context) => ToastCard(
-        leading: const Icon(
-          Icons.crisis_alert_rounded,
-          color: Colors.white,
-          size: 28,
-        ),
-        title: const Text(
-          "You are only 120–150 meters from an active flood zone",
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        color: Colors.red, // background white
-      ),
-      autoDismiss: true,
-      snackbarDuration: Durations.extralong4,
-    ).show(context);
+  Future<void> _setupMapAssets() async {
+    final nfBytes = await rootBundle.load('assets/images/marker_nf.png');
+    final patvBytes = await rootBundle.load('assets/images/marker_patv.png');
+    final nplvBytes = await rootBundle.load('assets/images/marker_nplv.png');
+    final npatvBytes = await rootBundle.load('assets/images/marker_npatv.png');
+    final pinBytes = await rootBundle.load(
+      'assets/images/selected_location.png',
+    );
+    final userBytes = await rootBundle.load('assets/images/user_location.png');
+
+    await mapController.addImage("nf", nfBytes.buffer.asUint8List());
+    await mapController.addImage("patv", patvBytes.buffer.asUint8List());
+    await mapController.addImage("nplv", nplvBytes.buffer.asUint8List());
+    await mapController.addImage("npatv", npatvBytes.buffer.asUint8List());
+    await mapController.addImage("location-pin", pinBytes.buffer.asUint8List());
+    await mapController.addImage("user-icon", userBytes.buffer.asUint8List());
   }
+
+  Future<void> _setupSourcesAndLayers() async {
+    await mapController.addSource(
+      "sensor-source",
+      GeojsonSourceProperties(
+        data: {
+          "type": "FeatureCollection",
+          "features": [
+            {
+              "type": "Feature",
+              "geometry": {
+                "type": "Point",
+                "coordinates": [0.0, 0.0],
+              },
+              "properties": {"icon": "nf", "sensorId": "init"},
+            },
+          ],
+        },
+      ),
+    );
+
+    await mapController.addSource(
+      "sensor-radius-source",
+      GeojsonSourceProperties(
+        data: {"type": "FeatureCollection", "features": []},
+      ),
+    );
+
+    await mapController.addSource(
+      "user-source",
+      GeojsonSourceProperties(
+        data: {"type": "FeatureCollection", "features": []},
+      ),
+    );
+
+    await mapController.addSource(
+      "route-source",
+      GeojsonSourceProperties(
+        data: {"type": "FeatureCollection", "features": []},
+      ),
+    );
+
+    await mapController.addSource(
+      "temp-pin-source",
+      GeojsonSourceProperties(
+        data: {"type": "FeatureCollection", "features": []},
+      ),
+    );
+
+    await mapController.addLayer(
+      "sensor-radius-source",
+      "sensor-radius-layer",
+      FillLayerProperties(
+        fillColor: [
+          "match",
+          ["get", "icon"],
+
+          "nf",
+          "#00ff00",
+
+          "patv",
+          "#0000ff",
+
+          "nplv",
+          "#ffa500",
+
+          "npatv",
+          "#ff0000",
+
+          "#888888",
+        ],
+
+        fillOpacity: 0.30,
+      ),
+    );
+
+    await mapController.addLineLayer(
+      "route-source",
+      "route-layer-border",
+      LineLayerProperties(
+        lineColor: "#000000",
+        lineWidth: 8,
+        lineOpacity: 0.9,
+        lineCap: "round",
+        lineJoin: "round",
+      ),
+    );
+
+    await mapController.addLineLayer(
+      "route-source",
+      "route-layer-main",
+      LineLayerProperties(
+        lineColor: "#1E90FF",
+        lineWidth: 5,
+        lineOpacity: 1.0,
+        lineCap: "round",
+        lineJoin: "round",
+      ),
+    );
+
+    await mapController.addLayer(
+      "sensor-source",
+      "sensor-layer",
+      SymbolLayerProperties(
+        iconImage: ["get", "icon"],
+        iconSize: 1.0,
+        iconAllowOverlap: true,
+        iconIgnorePlacement: true,
+      ),
+    );
+
+    await mapController.addLayer(
+      "temp-pin-source",
+      "temp-pin-layer",
+      SymbolLayerProperties(
+        iconImage: "location-pin",
+        iconSize: 1.0,
+        iconAllowOverlap: true,
+        iconIgnorePlacement: true,
+        iconAnchor: "bottom",
+      ),
+    );
+
+    await mapController.addLayer(
+      "user-source",
+      "user-layer",
+      SymbolLayerProperties(
+        iconImage: "user-icon",
+        iconSize: 1.0,
+        iconAllowOverlap: true,
+        iconIgnorePlacement: true,
+        iconRotate: ["get", "rotation"],
+        iconAnchor: "bottom",
+      ),
+    );
+  }
+
+  Future<void> _onStyleLoaded() async {
+    if (mapController == null) return;
+
+    await _setupMapAssets();
+    await _setupSourcesAndLayers();
+
+    _restoreMarkers();
+    _restoreRoute();
+  }
+
+  void _restoreRoute() {
+    if (_startLocationCoords != null && _endLocationCoords != null) {
+      _drawRoute(_startLocationCoords!, _endLocationCoords!);
+    }
+  }
+
+  void _restoreMarkers() {
+    _updateTempPin();
+  }
+
+  bool showFloodZones = false;
+
+  // ========================================
+  // BUILD / CORE UI
+  // ========================================
 
   @override
   Widget build(BuildContext context) {
+    final appManager = context.watch<AppManager>();
+
     return Scaffold(
-      resizeToAvoidBottomInset:
-          false, // 🚫 Prevents map/buttons from shifting up
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
-          // 🗺️ MAP
-          GoogleMap(
+          /// Map Background
+          MapLibreMap(
             onMapCreated: (controller) {
               _onMapCreated(controller);
 
-              // Animate zoom after map is ready
-              if (currentPosition != null) {
+              if (_smoothedCurrentPosition != null) {
                 controller.animateCamera(
                   CameraUpdate.newCameraPosition(
                     CameraPosition(
                       target: LatLng(
-                        currentPosition!.latitude,
-                        currentPosition!.longitude,
+                        _smoothedCurrentPosition!.latitude,
+                        _smoothedCurrentPosition!.longitude,
                       ),
-                      zoom: 17.0, // zoom to 17
+                      zoom: 17.0,
                     ),
                   ),
                 );
               }
             },
-            onTap: _onMapTap,
-            onCameraMove: _onCameraMove,
+
+            onStyleLoadedCallback: _onStyleLoaded,
+
+            onMapClick: (point, latLng) {
+              _onMapTap(latLng);
+            },
+
             initialCameraPosition: CameraPosition(
-              target: currentPosition != null
+              target: _smoothedCurrentPosition != null
                   ? LatLng(
-                      currentPosition!.latitude,
-                      currentPosition!.longitude,
+                      _smoothedCurrentPosition!.latitude,
+                      _smoothedCurrentPosition!.longitude,
                     )
-                  : _center,
-              zoom: 15.0, // start at 15
+                  : _CENTER,
+              zoom: 15.0,
             ),
-            mapType: MapType.normal,
-            markers: _markers,
-            circles: _circles,
-            polylines: _polylines,
-            //polygons: _polygons,
+
+            styleString: MapStyles.styles[appManager.currentMapStyle]!,
             compassEnabled: false,
             myLocationEnabled: false,
-            zoomControlsEnabled: false,
-
-            tileOverlays: {
-              TileOverlay(
-                tileOverlayId: TileOverlayId('xyz_tiles'),
-                tileProvider: UrlTileProvider(
-                  urlTemplate: '$serverUri/tiles/{z}/{x}/{y}.png',
-                ),
-                transparency: 0.3,
-              ),
-            },
+            zoomGesturesEnabled: true,
           ),
 
-          // 🔍 Floating Search Bar (Top)
-          // Positioned(
-          //   top: 50,
-          //   left: 20,
-          //   right: 20,
-          //   child: Container(
-          //     decoration: BoxDecoration(
-          //       color: Colors.white,
-          //       borderRadius: BorderRadius.circular(30),
-          //       boxShadow: [
-          //         BoxShadow(
-          //           color: Colors.black.withOpacity(0.1),
-          //           blurRadius: 6,
-          //           offset: const Offset(0, 2),
-          //         ),
-          //       ],
-          //     ),
-          //     child: TextField(
-          //       decoration: InputDecoration(
-          //         hintText: 'Search location...',
-          //         hintStyle: const TextStyle(color: Colors.grey),
-          //         prefixIcon: const Icon(Icons.search, color: Colors.grey),
-          //         border: InputBorder.none,
-          //         contentPadding: const EdgeInsets.symmetric(vertical: 15),
-          //       ),
-          //       onSubmitted: (value) {
-          //         // TODO: Add search functionality
-          //         print("Search: $value");
-          //       },
-          //     ),
-          //   ),
-          // ),
-
-          // 📍 Bottom Button Bar
-
           ///Side Buttons
-          Positioned(
-            top: 0,
-            bottom: 0,
-            left: 5,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton(
-                  onPressed: _goToUser,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(50),
-                    ),
-                    elevation: 3,
-                    shadowColor: Colors.black.withOpacity(0.15),
-                    minimumSize: const Size(40, 40),
-                  ),
-                  child: Center(
-                    child: Image.asset(
-                      'assets/images/icons/crosshair.png',
-                      width: 25,
-                      height: 25,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                ),
-
-                ElevatedButton(
-                  onPressed: _resetOrientation,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(50),
-                    ),
-                    elevation: 3, // shadow
-                    shadowColor: Colors.black.withOpacity(0.15),
-                    minimumSize: const Size(40, 40), // button size
-                  ),
-                  child: Center(
-                    child: Image.asset(
-                      'assets/images/icons/compass.png',
-                      width: 25,
-                      height: 25,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                ),
-
-                ElevatedButton(
-                  onPressed: () {
-                    /// TODO: Add function opening selecting direction
-
-                    // showAppToast(
-                    //   context,
-                    //   message: "Sensor #1 — Water level rising!",
-                    //   status: 'danger',
-                    //   distance: 30,
-                    // );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: color1,
-                    padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    elevation: 3,
-                    shadowColor: Colors.black.withOpacity(0.15),
-                    minimumSize: const Size(40, 40),
-                  ),
-                  child: Center(
-                    child: Image.asset(
-                      'assets/images/icons/direction.png',
-                      width: 25,
-                      height: 25,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          MapSideButtons(
+            onGoToUser: _goToUser,
+            onResetOrientation: _resetOrientation,
+            onOpenLayers: () => openLayers(context, showMainSheet),
           ),
 
           ///Direction Details
           AnimatedPositioned(
-            duration: Duration(milliseconds: 200),
+            duration: const Duration(milliseconds: 200),
             curve: Curves.easeOut,
             left: 0,
             right: 0,
-
-            /// Slide up / Slide down
             bottom: showDirectionSheet
                 ? directionDragOffset
                 : -directionSheetHeight,
-
-            /// AUTO HEIGHT (null at first, then assigned after measurement)
             height: directionSheetHeight == 0 ? null : directionSheetHeight,
 
             child: GestureDetector(
               onVerticalDragUpdate: (details) {
                 setState(() {
                   directionDragOffset -= details.delta.dy;
-
-                  if (directionDragOffset > 0)
-                    directionDragOffset = 0; // cannot drag above
+                  if (directionDragOffset > 0) directionDragOffset = 0;
                   if (directionDragOffset < -directionSheetHeight) {
-                    directionDragOffset =
-                        -directionSheetHeight; // cannot drag below hidden
+                    directionDragOffset = -directionSheetHeight;
                   }
                 });
               },
@@ -1370,17 +1035,24 @@ class _MapScreenState extends State<MapScreen> {
               child: Container(
                 key: directionKey,
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                  boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10)],
+                  color: colorSheet,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(24),
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 12,
+                      offset: Offset(0, -3),
+                    ),
+                  ],
                 ),
 
                 child: Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
 
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      /// AUTO-DETECT HEIGHT after widget builds
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         final renderBox =
                             directionKey.currentContext?.findRenderObject()
@@ -1397,138 +1069,158 @@ class _MapScreenState extends State<MapScreen> {
 
                       return Column(
                         mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Drag handle
-                          Container(
-                            width: 40,
-                            height: 5,
-                            margin: const EdgeInsets.only(bottom: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.grey[300],
-                              borderRadius: BorderRadius.circular(10),
+                          // Drag Handle
+                          Center(
+                            child: Container(
+                              width: 48,
+                              height: 6,
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[400],
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
                           ),
 
-                          // Title
+                          // Header
                           Row(
                             children: [
                               Icon(
-                                Icons.polyline_rounded,
-                                size: 32,
-                                color: color1_2,
+                                Icons.alt_route_rounded,
+                                size: 28,
+                                color: colorPrimary,
                               ),
                               const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      "Directions",
-                                      style: TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: const [
+                                  Text(
+                                    "Directions",
+                                    style: TextStyle(
+                                      fontFamily: 'AvenirNext',
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w700,
+                                      color: colorTextPrimary,
                                     ),
-                                    Text(
-                                      "Select a vehicle and destination",
-                                      style: TextStyle(color: Colors.grey[600]),
+                                  ),
+                                  SizedBox(height: 2),
+                                  Text(
+                                    "Choose your start and destination",
+                                    style: TextStyle(
+                                      fontFamily: 'AvenirNext',
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w400,
+                                      color: colorTextSecondary,
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
 
-                          const SizedBox(height: 15),
+                          const SizedBox(height: 16),
 
-                          // Current & Destination Box
+                          // Location Card
                           Container(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                              horizontal: 12,
+                            ),
                             decoration: BoxDecoration(
-                              color: color1_4,
-                              borderRadius: BorderRadius.circular(12),
+                              color: colorPrimaryLight.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(14),
                             ),
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                /// Current Location
+                                // Current Location
                                 InkWell(
                                   onTap: () {
-                                    print("Current Location clicked");
+                                    setState(() {
+                                      _mode = LocationMode.start;
+                                    });
+                                    openPlaceSearch();
                                   },
-                                  child: Container(
+                                  child: SizedBox(
                                     height: 50,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 4,
-                                    ),
                                     child: Row(
                                       children: [
-                                        Image.asset(
-                                          'assets/images/icons/current.png',
-                                          width: 22,
-                                          height: 22,
+                                        Icon(
+                                          (_startLocationCoords == null)
+                                              ? Icons.my_location
+                                              : Icons.location_on,
+                                          size: 20,
+                                          color: (_startLocationCoords == null)
+                                              ? colorPrimary
+                                              : color_npatv,
                                         ),
-                                        const SizedBox(width: 10),
+                                        const SizedBox(width: 12),
                                         Expanded(
                                           child: Text(
-                                            "Current Location",
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w500,
+                                            _startLocationName.isNotEmpty
+                                                ? _startLocationName
+                                                : (_startLocationCoords != null
+                                                      ? "${_startLocationCoords!.latitude.toStringAsFixed(5)}, ${_startLocationCoords!.longitude.toStringAsFixed(5)}"
+                                                      : "Select Starting Location"),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontFamily: 'AvenirNext',
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
                                             ),
                                           ),
                                         ),
                                         Icon(
-                                          Icons.arrow_forward_ios,
-                                          size: 16,
-                                          color: Colors.grey,
+                                          Icons.chevron_right,
+                                          color: Colors.grey[500],
                                         ),
                                       ],
                                     ),
                                   ),
                                 ),
 
-                                const Divider(height: 1, color: Colors.grey),
+                                Divider(height: 1, color: Colors.grey.shade300),
 
-                                /// Destination
+                                // Destination
                                 InkWell(
                                   onTap: () {
+                                    setState(() {
+                                      _mode = LocationMode.end;
+                                    });
                                     openPlaceSearch();
                                   },
-                                  child: Container(
+                                  child: SizedBox(
                                     height: 50,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 4,
-                                    ),
                                     child: Row(
                                       children: [
-                                        Image.asset(
-                                          'assets/images/icons/destination.png',
-                                          width: 22,
-                                          height: 22,
+                                        Icon(
+                                          Icons.location_on,
+                                          size: 20,
+                                          color: color_npatv,
                                         ),
-                                        const SizedBox(width: 10),
+                                        const SizedBox(width: 12),
                                         Expanded(
                                           child: Text(
-                                            // Show savedPlace name if available, otherwise use coordinates, or default text
-                                            savedPlace["name"] != ""
-                                                ? savedPlace["name"]
-                                                : (savedPinPosition != null
-                                                      ? "${savedPinPosition!.latitude.toStringAsFixed(5)}, ${savedPinPosition!.longitude.toStringAsFixed(5)}"
+                                            _endLocationName.isNotEmpty
+                                                ? _endLocationName
+                                                : (_endLocationCoords != null
+                                                      ? _endLocationCoords
+                                                            .toString()
                                                       : "Select Destination"),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(
-                                              fontSize: 16,
+                                              fontFamily: 'AvenirNext',
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
                                             ),
-                                            overflow: TextOverflow
-                                                .ellipsis, // truncate if too long
-                                            maxLines: 1, // ensure only one line
                                           ),
                                         ),
                                         Icon(
-                                          Icons.arrow_forward_ios,
-                                          size: 16,
-                                          color: Colors.grey,
+                                          Icons.chevron_right,
+                                          color: Colors.grey[500],
                                         ),
                                       ],
                                     ),
@@ -1538,228 +1230,7 @@ class _MapScreenState extends State<MapScreen> {
                             ),
                           ),
 
-                          const SizedBox(height: 10),
-
-                          // Vehicle selection row
-                          Container(
-                            width: double.infinity,
-                            child: Center(
-                              child: Container(
-                                padding: const EdgeInsets.all(5),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(40),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.15),
-                                      spreadRadius: 1,
-                                      blurRadius: 3,
-                                      offset: const Offset(0, 0),
-                                    ),
-                                  ],
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    selectVehicle(
-                                      name: 'Motorcycle',
-                                      imagePath:
-                                          'assets/images/icons/motorcycle.png',
-                                      onTap: () {
-                                        setState(
-                                          () => selectedVehicle = 'Motorcycle',
-                                        );
-                                      },
-                                    ),
-                                    const SizedBox(width: 5),
-                                    selectVehicle(
-                                      name: 'Car',
-                                      imagePath: 'assets/images/icons/car.png',
-                                      onTap: () {
-                                        setState(() => selectedVehicle = 'Car');
-                                      },
-                                    ),
-                                    const SizedBox(width: 5),
-                                    selectVehicle(
-                                      name: 'Truck',
-                                      imagePath:
-                                          'assets/images/icons/truck.png',
-                                      onTap: () {
-                                        setState(
-                                          () => selectedVehicle = 'Truck',
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-
-                          SizedBox(
-                            height: 50,
-                          ), // extra spacing same as your Sensor sheet
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          ///Sensor Settings
-          AnimatedPositioned(
-            duration: Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            left: 0,
-            right: 0,
-            bottom: showSensorSettingsSheet
-                ? sensorSettingsDragOffset
-                : -sensorSettingsSheetHeight,
-            // AUTO HEIGHT
-            height: sensorSettingsSheetHeight == 0
-                ? null
-                : sensorSettingsSheetHeight,
-            child: GestureDetector(
-              onVerticalDragUpdate: (details) {
-                setState(() {
-                  sensorSettingsDragOffset -= details.delta.dy;
-
-                  if (sensorSettingsDragOffset > 0)
-                    sensorSettingsDragOffset = 0;
-
-                  if (sensorSettingsDragOffset < -sensorSettingsSheetHeight) {
-                    sensorSettingsDragOffset = -sensorSettingsSheetHeight;
-                  }
-                });
-              },
-              onVerticalDragEnd: (details) {
-                if (sensorSettingsDragOffset < -sensorSettingsSheetHeight / 2) {
-                  setState(() {
-                    showSensorSettingsSheet = false;
-                    sensorSettingsDragOffset = 0;
-                  });
-                } else {
-                  setState(() {
-                    sensorSettingsDragOffset = 0;
-                  });
-                }
-              },
-
-              child: Container(
-                key: sensorSettingsKey,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                  boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10)],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      // AUTO-DETECT THE HEIGHT AFTER FIRST BUILD
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        final renderBox =
-                            sensorSettingsKey.currentContext?.findRenderObject()
-                                as RenderBox?;
-                        if (renderBox != null) {
-                          final newHeight = renderBox.size.height;
-                          if (sensorSettingsSheetHeight != newHeight) {
-                            setState(() {
-                              sensorSettingsSheetHeight = newHeight;
-                            });
-                          }
-                        }
-                      });
-
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Drag handle
-                          Container(
-                            width: 40,
-                            height: 5,
-                            margin: const EdgeInsets.only(bottom: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.grey[300],
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-
-                          Row(
-                            children: [
-                              Icon(Icons.settings, size: 32, color: color1_2),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      "Sensor Settings",
-                                      style: TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    Text(
-                                      "Control sensor display options",
-                                      style: TextStyle(color: Colors.grey[600]),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 15),
-
-                          _sensorToggle(
-                            title: 'Show All Sensors',
-                            description: 'Display all sensors on the map',
-                            value: showAllSensors,
-                            onChanged: (val) {
-                              setState(() {
-                                showAllSensors = val;
-                              });
-                              _refreshSensorMarkers();
-                            },
-                          ),
-
-                          _sensorToggle(
-                            title: 'Show Sensor Range / Coverage',
-                            description: 'Display sensor coverage area',
-                            value: showSensorCoverage,
-                            onChanged: (val) {
-                              setState(() {
-                                showSensorCoverage = val;
-                              });
-                            },
-                          ),
-
-                          _sensorToggle(
-                            title: 'Alerted / Critical Sensors Only',
-                            description: 'Show only sensors with alerts',
-                            value: showCriticalSensors,
-                            onChanged: (val) {
-                              setState(() {
-                                showCriticalSensors = val;
-                              });
-                            },
-                          ),
-
-                          _sensorToggle(
-                            title: 'Sensor Labels',
-                            description: 'Show sensor names or IDs on the map',
-                            value: showSensorLabels,
-                            onChanged: (val) {
-                              setState(() {
-                                showSensorLabels = val;
-                              });
-                              _refreshSensorMarkers();
-                            },
-                          ),
-                          SizedBox(height: 50),
+                          const SizedBox(height: 30),
                         ],
                       );
                     },
@@ -1776,33 +1247,22 @@ class _MapScreenState extends State<MapScreen> {
             left: 0,
             right: 0,
             bottom: showSensorSheet ? sensorDragOffset : -sensorSheetHeight,
-
-            // AUTO HEIGHT (same logic as Settings)
             height: sensorSheetHeight == 0 ? null : sensorSheetHeight,
-
             child: GestureDetector(
               onVerticalDragUpdate: (details) {
                 setState(() {
                   sensorDragOffset -= details.delta.dy;
-
                   if (sensorDragOffset > 0) sensorDragOffset = 0;
-
                   if (sensorDragOffset < -sensorSheetHeight) {
                     sensorDragOffset = -sensorSheetHeight;
                   }
                 });
               },
-
               onVerticalDragEnd: (details) {
                 if (sensorDragOffset < -sensorSheetHeight / 2) {
                   setState(() {
                     showSensorSheet = false;
                     sensorDragOffset = 0;
-
-                    // Remove sensor circles when closing
-                    _circles.removeWhere(
-                      (c) => c.circleId.value.startsWith('sensor'),
-                    );
                   });
                 } else {
                   setState(() {
@@ -1810,34 +1270,31 @@ class _MapScreenState extends State<MapScreen> {
                   });
                 }
               },
-
               child: Container(
                 key: sensorKey,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                  boxShadow: [
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
+                  boxShadow: const [
                     BoxShadow(
                       color: Colors.black26,
-                      blurRadius: 10,
-                      offset: Offset(0, -2),
+                      blurRadius: 12,
+                      offset: Offset(0, -4),
                     ),
                   ],
                 ),
-
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      // AUTO-DETECT HEIGHT
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         final renderBox =
                             sensorKey.currentContext?.findRenderObject()
                                 as RenderBox?;
-
                         if (renderBox != null) {
                           final newHeight = renderBox.size.height;
-
                           if (sensorSheetHeight != newHeight) {
                             setState(() {
                               sensorSheetHeight = newHeight;
@@ -1846,10 +1303,9 @@ class _MapScreenState extends State<MapScreen> {
                         }
                       });
 
-                      final sensor = selectedSensorId != null
-                          ? sensors[selectedSensorId]!
+                      final sensor = _selectedSensorId.isNotEmpty
+                          ? _latestSensorData[_selectedSensorId]
                           : null;
-                      final data = sensor?['sensorData'];
 
                       return Column(
                         mainAxisSize: MainAxisSize.min,
@@ -1871,26 +1327,33 @@ class _MapScreenState extends State<MapScreen> {
                           // HEADER
                           Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.sensors,
                                 size: 32,
-                                color: color1_2,
-                              ),
+                                color: colorPrimaryMid,
+                              ), // primary theme
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text(
+                                    Text(
                                       "Sensor Details",
-                                      style: TextStyle(
+                                      style: const TextStyle(
+                                        fontFamily: 'AvenirNext',
                                         fontSize: 20,
-                                        fontWeight: FontWeight.bold,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.black87,
                                       ),
                                     ),
                                     Text(
                                       "Tap for more information",
-                                      style: TextStyle(color: Colors.grey[600]),
+                                      style: TextStyle(
+                                        fontFamily: 'AvenirNext',
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.grey[600],
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -1905,35 +1368,66 @@ class _MapScreenState extends State<MapScreen> {
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(16),
                               boxShadow: const [
                                 BoxShadow(
                                   color: Colors.black12,
-                                  blurRadius: 6,
+                                  blurRadius: 5,
                                   offset: Offset(0, 2),
                                 ),
                               ],
                             ),
                             child: Column(
                               children: [
-                                _infoRow("Sensor ID", selectedSensorId ?? "-"),
-                                _infoRow("Location", "Ortigas Ave"),
-                                _infoRow(
+                                infoRow(
+                                  "Sensor ID",
+                                  _selectedSensorId.isNotEmpty
+                                      ? _selectedSensorId
+                                      : "-",
+                                ),
+                                infoRow(
+                                  "Coords",
+                                  sensor?['latlong'] != null
+                                      ? "${sensor?['latlong']}"
+                                      : "-",
+                                ),
+                                infoRow(
                                   "Flood Height",
-                                  "${data?['floodHeight'] ?? "-"} cm",
+                                  sensor?['wlvl_now'] != null
+                                      ? "${sensor?['wlvl_now']} cm"
+                                      : "-",
                                 ),
-                                _infoRow(
+                                infoRow(
+                                  "Forecast",
+                                  sensor?['forecast'] != null
+                                      ? "${sensor?['forecast']} cm"
+                                      : "-",
+                                ),
+                                infoRow(
                                   "Distance",
-                                  "${data?['distance'] ?? "-"} cm",
+                                  sensor?['distance'] != null
+                                      ? "${sensor?['distance']} cm"
+                                      : "-",
                                 ),
-                                _statusRow(
+                                statusRow(
                                   "Status",
-                                  data?['status'] ?? "-",
-                                  _getStatusColor(data?['status'] ?? ""),
+                                  sensor?['flood_cat'] != null
+                                      ? "${sensor?['flood_cat']}"
+                                      : "-",
+                                  sensor?['flood_cat'] != null
+                                      ? FloodStatuses
+                                            .floodStatuses[sensor?['flood_cat']]!['color']
+                                      : color_nf,
+                                  sensor?['flood_cat'] != null
+                                      ? FloodStatuses
+                                            .floodStatuses[sensor?['flood_cat']]!['icon']
+                                      : "assets/images/sensor_location.png",
                                 ),
-                                _infoRow(
+                                infoRow(
                                   "Last Update",
-                                  data?['lastUpdate'] ?? "-",
+                                  sensor?['datetime'] != null
+                                      ? "${sensor?['datetime']}"
+                                      : "-",
                                 ),
                               ],
                             ),
@@ -1941,32 +1435,17 @@ class _MapScreenState extends State<MapScreen> {
 
                           const SizedBox(height: 20),
 
-                          // BUTTON
-                          Center(
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: color1,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                onPressed: () {
-                                  Navigator.pushNamed(context, '/info');
-                                },
-                                child: const Text(
-                                  "View Full Details",
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
+                          // PRIMARY BUTTON (modern, blue theme)
+                          SizedBox(
+                            width: double.infinity,
+                            child: primaryButton(
+                              text: "View Full Details",
+                              onTap: () {
+                                setState(() {
+                                  // sensorViewInfo = selectedSensorId!;
+                                });
+                                Navigator.pushNamed(context, '/info');
+                              },
                             ),
                           ),
 
@@ -1989,8 +1468,6 @@ class _MapScreenState extends State<MapScreen> {
             bottom: showPinConfirmationSheet
                 ? pinConfirmationDragOffset
                 : -pinConfirmationSheetHeight,
-
-            // AUTO HEIGHT
             height: pinConfirmationSheetHeight == 0
                 ? null
                 : pinConfirmationSheetHeight,
@@ -1999,25 +1476,19 @@ class _MapScreenState extends State<MapScreen> {
               onVerticalDragUpdate: (details) {
                 setState(() {
                   pinConfirmationDragOffset -= details.delta.dy;
-
                   if (pinConfirmationDragOffset > 0)
                     pinConfirmationDragOffset = 0;
-
                   if (pinConfirmationDragOffset < -pinConfirmationSheetHeight) {
                     pinConfirmationDragOffset = -pinConfirmationSheetHeight;
                   }
                 });
               },
-
               onVerticalDragEnd: (details) {
                 if (pinConfirmationDragOffset <
                     -pinConfirmationSheetHeight / 2) {
                   setState(() {
                     cancelPinSelection();
                     pinConfirmationDragOffset = 0;
-                    _circles.removeWhere(
-                      (c) => c.circleId.value.startsWith('sensor'),
-                    );
                   });
                 } else {
                   setState(() {
@@ -2034,8 +1505,8 @@ class _MapScreenState extends State<MapScreen> {
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black26,
-                      blurRadius: 10,
-                      offset: Offset(0, -2),
+                      blurRadius: 12,
+                      offset: Offset(0, -3),
                     ),
                   ],
                 ),
@@ -2044,15 +1515,12 @@ class _MapScreenState extends State<MapScreen> {
                   padding: const EdgeInsets.all(20),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      // AUTO-DETECT HEIGHT
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         final renderBox =
                             pinConfirmKey.currentContext?.findRenderObject()
                                 as RenderBox?;
-
                         if (renderBox != null) {
                           final newHeight = renderBox.size.height;
-
                           if (pinConfirmationSheetHeight != newHeight) {
                             setState(() {
                               pinConfirmationSheetHeight = newHeight;
@@ -2061,16 +1529,10 @@ class _MapScreenState extends State<MapScreen> {
                         }
                       });
 
-                      final sensor = selectedSensorId != null
-                          ? sensors[selectedSensorId]!
-                          : null;
-                      final data = sensor?['sensorData'];
-
                       return Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // DRAG HANDLE
                           Center(
                             child: Container(
                               width: 40,
@@ -2081,31 +1543,39 @@ class _MapScreenState extends State<MapScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 15),
 
-                          // HEADER
+                          const SizedBox(height: 14),
+
                           Row(
                             children: [
                               const Icon(
                                 Icons.location_pin,
-                                size: 32,
-                                color: color1_2,
+                                size: 30,
+                                color: Colors.blue,
                               ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
+                                  children: const [
+                                    Text(
                                       "Set Pin Location",
                                       style: TextStyle(
+                                        fontFamily: 'AvenirNext',
                                         fontSize: 20,
-                                        fontWeight: FontWeight.bold,
+                                        fontWeight: FontWeight.w700,
+                                        color: colorTextPrimary,
                                       ),
                                     ),
                                     Text(
-                                      "Tap Confirm to set new pin location",
-                                      style: TextStyle(color: Colors.grey[600]),
+                                      "Tap Confirm to set new pin location.",
+                                      style: TextStyle(
+                                        fontFamily: 'AvenirNext',
+                                        fontSize: 13,
+                                        color: Colors
+                                            .grey, // same as Reroute subtitle
+                                        fontWeight: FontWeight.w400,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -2113,102 +1583,54 @@ class _MapScreenState extends State<MapScreen> {
                             ],
                           ),
 
-                          const SizedBox(height: 15),
+                          const SizedBox(height: 18),
 
-                          // CANCEL & CONFIRM BUTTONS
                           Row(
                             children: [
-                              // CANCEL BUTTON
                               Expanded(
-                                child: SizedBox(
-                                  height: 50,
-                                  child: OutlinedButton(
-                                    style: OutlinedButton.styleFrom(
-                                      side: const BorderSide(
-                                        color: color1,
-                                        width: 2,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                    ),
-                                    onPressed: () {
-                                      cancelPinSelection();
-                                    },
-                                    child: const Text(
-                                      "CANCEL",
-                                      style: TextStyle(
-                                        color: color1,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ),
+                                child: secondaryButton(
+                                  text: "CANCEL",
+                                  onTap: () {
+                                    cancelPinSelection();
+                                    _goToUser();
+                                    setState(() {
+                                      showPinConfirmationSheet = false;
+                                    });
+                                  },
                                 ),
                               ),
-
                               const SizedBox(width: 12),
-
-                              // CONFIRM BUTTON
                               Expanded(
-                                child: SizedBox(
-                                  height: 50,
-                                  child: ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: color1,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                    ),
-                                    onPressed: () {
-                                      setState(() {
-                                        // Remove old saved pin if exists
-                                        if (savedPinMarker != null) {
-                                          _markers.remove(savedPinMarker);
-                                        }
+                                child: primaryButton(
+                                  text: "CONFIRM",
+                                  onTap: () {
+                                    setState(() {
+                                      if (_mode == LocationMode.end) {
+                                        _endLocationCoords = _tempPosition;
+                                        _endLocationName = _tempName!;
+                                        _endMarker = _tempMarker!;
+                                      } else if (_mode == LocationMode.start) {
+                                        _startLocationCoords = _tempPosition;
+                                        _startLocationName = _tempName!;
+                                        _startMarker = _tempMarker!;
+                                      }
 
-                                        // Promote temporary pin → official saved pin
-                                        savedPinMarker = tappedMarker;
-                                        savedPinPosition = tappedPosition;
+                                      showPinConfirmationSheet = false;
 
-                                        savedPlace = Map.from(
-                                          currentPlace,
-                                        ); // update savedPlace
+                                      _updateTempPin();
+                                      _updateRouteView();
 
-                                        // Clear temp variables
-                                        tappedMarker = null;
-                                        tappedPosition = null;
-                                        currentPlace = {
-                                          "name": "",
-                                          "location": LatLng(0.0, 0.0),
-                                        };
-
-                                        // Hide confirmation sheet and cleanup
-                                        showPinConfirmationSheet = false;
-
-                                        // Optional: remove sensor circles
-                                        _circles.removeWhere(
-                                          (c) => c.circleId.value.startsWith(
-                                            'sensor',
-                                          ),
-                                        );
-                                      });
-                                    },
-                                    child: const Text(
-                                      "CONFIRM",
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
+                                      _tempPosition = null;
+                                      _tempName = null;
+                                      _tempMarker = null;
+                                    });
+                                  },
                                 ),
                               ),
                             ],
                           ),
 
-                          const SizedBox(height: 40), // bottom padding
+                          const SizedBox(height: 40),
                         ],
                       );
                     },
@@ -2228,7 +1650,6 @@ class _MapScreenState extends State<MapScreen> {
                 ? rerouteConfirmationDragOffset
                 : -rerouteConfirmationSheetHeight,
 
-            // AUTO HEIGHT
             height: rerouteConfirmationSheetHeight == 0
                 ? null
                 : rerouteConfirmationSheetHeight,
@@ -2240,7 +1661,6 @@ class _MapScreenState extends State<MapScreen> {
 
                   if (rerouteConfirmationDragOffset > 0)
                     rerouteConfirmationDragOffset = 0;
-
                   if (rerouteConfirmationDragOffset <
                       -rerouteConfirmationSheetHeight) {
                     rerouteConfirmationDragOffset =
@@ -2255,9 +1675,6 @@ class _MapScreenState extends State<MapScreen> {
                   setState(() {
                     showRerouteConfirmationSheet = false;
                     rerouteConfirmationDragOffset = 0;
-                    _circles.removeWhere(
-                      (c) => c.circleId.value.startsWith('sensor'),
-                    );
                   });
                 } else {
                   setState(() {
@@ -2274,8 +1691,8 @@ class _MapScreenState extends State<MapScreen> {
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black26,
-                      blurRadius: 10,
-                      offset: Offset(0, -2),
+                      blurRadius: 12,
+                      offset: Offset(0, -3),
                     ),
                   ],
                 ),
@@ -2284,15 +1701,12 @@ class _MapScreenState extends State<MapScreen> {
                   padding: const EdgeInsets.all(20),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      // AUTO-DETECT HEIGHT
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         final renderBox =
                             rerouteConfirmKey.currentContext?.findRenderObject()
                                 as RenderBox?;
-
                         if (renderBox != null) {
                           final newHeight = renderBox.size.height;
-
                           if (rerouteConfirmationSheetHeight != newHeight) {
                             setState(() {
                               rerouteConfirmationSheetHeight = newHeight;
@@ -2301,16 +1715,10 @@ class _MapScreenState extends State<MapScreen> {
                         }
                       });
 
-                      final sensor = selectedSensorId != null
-                          ? sensors[selectedSensorId]!
-                          : null;
-                      final data = sensor?['sensorData'];
-
                       return Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // DRAG HANDLE
                           Center(
                             child: Container(
                               width: 40,
@@ -2321,31 +1729,42 @@ class _MapScreenState extends State<MapScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 15),
 
-                          // HEADER
+                          const SizedBox(height: 14),
+
                           Row(
                             children: [
-                              const Icon(
-                                Icons.location_pin,
-                                size: 32,
-                                color: color1_2,
+                              Icon(
+                                Icons.alt_route_rounded,
+                                size: 30,
+                                color: colorPrimaryMid,
                               ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text(
-                                      "Route Adjustment", //Set Alternate Route
-                                      style: TextStyle(
+                                    Text(
+                                      (_endLocationCoords != null &&
+                                              _endLocationCoords != "null")
+                                          ? "Route Adjustment"
+                                          : "Create Reroute",
+                                      style: const TextStyle(
+                                        fontFamily: 'AvenirNext',
                                         fontSize: 20,
-                                        fontWeight: FontWeight.bold,
+                                        fontWeight: FontWeight.w700,
+                                        color: colorTextPrimary,
                                       ),
                                     ),
                                     Text(
-                                      "Confirm to create a detour.", //Tap Confirm to place a pin and create an alternate route.”
-                                      style: TextStyle(color: Colors.grey[600]),
+                                      (_endLocationCoords != null &&
+                                              _endLocationCoords != "null")
+                                          ? "Confirm to generate a safer alternate path."
+                                          : "Confirm to select destination to reroute",
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey[600],
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -2353,88 +1772,60 @@ class _MapScreenState extends State<MapScreen> {
                             ],
                           ),
 
-                          const SizedBox(height: 15),
+                          const SizedBox(height: 18),
 
-                          // CANCEL & CONFIRM BUTTONS
                           Row(
                             children: [
-                              // CANCEL BUTTON
                               Expanded(
-                                child: SizedBox(
-                                  height: 50,
-                                  child: OutlinedButton(
-                                    style: OutlinedButton.styleFrom(
-                                      side: const BorderSide(
-                                        color: color1,
-                                        width: 2,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                    ),
-                                    onPressed: () {
-                                      setState(() {
-                                        showRerouteConfirmationSheet = false;
-                                      });
-                                    },
-                                    child: const Text(
-                                      "IGNORE",
-                                      style: TextStyle(
-                                        color: color1,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ),
+                                child: secondaryButton(
+                                  text: "IGNORE",
+                                  onTap: () {
+                                    setState(() {
+                                      showRerouteConfirmationSheet = false;
+                                    });
+                                  },
                                 ),
                               ),
-
                               const SizedBox(width: 12),
-
-                              // CONFIRM BUTTON
                               Expanded(
-                                child: SizedBox(
-                                  height: 50,
-                                  child: ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: color1,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                    ),
-                                    onPressed: () {
-                                      setState(() {
-                                        normalRouting = false;
-                                        showRerouteConfirmationSheet = false;
-                                      });
+                                child: primaryButton(
+                                  text: "REROUTE",
+                                  onTap: () {
+                                    final hasValidPin =
+                                        _endLocationCoords != null &&
+                                        _endLocationCoords != "null";
+                                    print("hasValidPin: $hasValidPin");
+                                    setState(() {
+                                      normalRouting = false;
+                                      showRerouteConfirmationSheet = false;
+                                    });
 
-                                      // 2–3. After UI updates, draw new route
+                                    if (!hasValidPin) {
+                                      setState(() {
+                                        _mode = LocationMode.end;
+                                      });
+                                      openPlaceSearch();
+                                    } else {
                                       WidgetsBinding.instance
                                           .addPostFrameCallback((_) {
                                             _drawRoute(
                                               LatLng(
-                                                currentPosition!.latitude,
-                                                currentPosition!.longitude,
+                                                _smoothedCurrentPosition!
+                                                    .latitude,
+                                                _smoothedCurrentPosition!
+                                                    .longitude,
                                               ),
-                                              savedPinMarker!.position,
+                                              _endLocationCoords!,
                                             );
                                           });
-                                    },
-                                    child: const Text(
-                                      "REROUTE",
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
+                                    }
+                                  },
                                 ),
                               ),
                             ],
                           ),
 
-                          const SizedBox(height: 40), // bottom padding
+                          const SizedBox(height: 40),
                         ],
                       );
                     },
@@ -2455,37 +1846,17 @@ class _MapScreenState extends State<MapScreen> {
                   onTap: () {
                     setState(() {
                       showSensorSheet = false;
-                      showSensorSettingsSheet = false;
                       showPinConfirmationSheet = false;
                       showRerouteConfirmationSheet = false;
                       cancelPinSelection();
                       showDirectionSheet = !showDirectionSheet;
                     });
-                    _circles.removeWhere(
-                      (c) => c.circleId.value.startsWith('sensor'),
-                    );
                   },
                   label: 'Directions',
                   imagePath: 'assets/images/icons/pin.png',
-                  iconColor: (showDirectionSheet) ? color1 : color2,
-                ),
-                bottomButton(
-                  onTap: () {
-                    setState(() {
-                      showSensorSheet = false;
-                      showDirectionSheet = false;
-                      showPinConfirmationSheet = false;
-                      showRerouteConfirmationSheet = false;
-                      cancelPinSelection();
-                      showSensorSettingsSheet = !showSensorSettingsSheet;
-                    });
-                    _circles.removeWhere(
-                      (c) => c.circleId.value.startsWith('sensor'),
-                    );
-                  },
-                  label: 'Sensor',
-                  imagePath: 'assets/images/icons/sensor.png',
-                  iconColor: (showSensorSettingsSheet) ? color1 : color2,
+                  iconColor: (showDirectionSheet)
+                      ? colorPrimaryMid
+                      : colorPrimaryDeep,
                 ),
                 bottomButton(
                   onTap: () {
@@ -2493,28 +1864,24 @@ class _MapScreenState extends State<MapScreen> {
                       setState(() {
                         showSensorSheet = false;
                         showDirectionSheet = false;
-                        showSensorSettingsSheet = false;
                         showPinConfirmationSheet = false;
                         cancelPinSelection();
                         showRerouteConfirmationSheet =
                             !showRerouteConfirmationSheet;
                       });
-                      _circles.removeWhere(
-                        (c) => c.circleId.value.startsWith('sensor'),
-                      );
                     }
                   },
                   label: 'Alerts',
                   imagePath: 'assets/images/icons/exclamation.png',
                   iconColor: (showRerouteConfirmationSheet)
-                      ? color1
+                      ? colorPrimaryMid
                       : (displayAlert)
                       ? Colors.red
-                      : color2,
+                      : colorPrimaryDeep,
                   buttonColor: (showRerouteConfirmationSheet)
                       ? Colors.white
                       : (displayAlert)
-                      ? color_alert
+                      ? colorAlertBg
                       : Colors.white,
                 ),
               ],
@@ -2522,109 +1889,96 @@ class _MapScreenState extends State<MapScreen> {
           ),
 
           ///Burger menu
-          Positioned(
-            top: 20,
-            left: 10,
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 300), // fade duration
-              opacity: showMainSheet ? 0.0 : 1.0, // fade out when true
-              curve: Curves.easeInOut,
-              child: IgnorePointer(
-                ignoring: showMainSheet, // disable tap when hidden
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      showDirectionSheet = false;
-                      showSensorSheet = false;
-                      showSensorSettingsSheet = false;
-                      showPinConfirmationSheet = false;
-                      showRerouteConfirmationSheet = false;
+          MapBurgerMenuButton(
+            showMainSheet: showMainSheet,
+            onTap: () {
+              setState(() {
+                showDirectionSheet = false;
+                showSensorSheet = false;
+                showPinConfirmationSheet = false;
+                showRerouteConfirmationSheet = false;
 
-                      showMainSheet = true;
-                    });
-                  },
-                  child: Container(
-                    height: 40,
-                    width: 40,
-                    decoration: BoxDecoration(
-                      color: color1,
-                      borderRadius: BorderRadius.circular(50),
-                    ),
-                    child: Center(
-                      child: Image.asset(
-                        'assets/images/icons/burger-bar.png',
-                        width: 25,
-                        height: 25,
-                        fit: BoxFit.contain,
-                        color: Colors.white,
-                        colorBlendMode: BlendMode.srcIn,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+                showMainSheet = true;
+                _tempSelectedVehicle = _selectedVehicle;
+                cancelPinSelection();
+              });
+            },
           ),
 
-          ///New Added
           ///Banner
           AnimatedPositioned(
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeInOut,
-            top: showMainSheet ? 20 : -200, // 👈 slide up when closing
+            top: showMainSheet ? 20 : -200,
             left: 0,
             right: 0,
-
             child: AnimatedOpacity(
               duration: const Duration(milliseconds: 200),
-              opacity: showMainSheet ? 1 : 0, // 👈 fade out
+              opacity: showMainSheet ? 1 : 0,
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 15),
-                padding: const EdgeInsets.symmetric(vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [color1_3, color1],
+                    colors: [
+                      Colors.blueAccent.shade400,
+                      Colors.lightBlue.shade300,
+                    ],
                   ),
-                  borderRadius: BorderRadius.circular(15),
+                  borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.15),
-                      spreadRadius: 1,
-                      blurRadius: 3,
-                      offset: const Offset(0, 0),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
                     ),
                   ],
                 ),
-
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                        Text(
-                          'Flood update\nto your zone',
-                          style: TextStyle(fontSize: 24),
-                        ),
-                        SizedBox(height: 10),
-                        Text(
-                          'Stay alert, stay safe',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.white,
+                    // Text Column
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'Flood Update\nin Your Zone',
+                            style: TextStyle(
+                              fontFamily: 'AvenirNext',
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700, // Bold
+                              color: Colors.white,
+                              height: 1.2,
+                            ),
                           ),
-                        ),
-                      ],
+                          SizedBox(height: 8),
+                          Text(
+                            'Stay alert, stay safe',
+                            style: TextStyle(
+                              fontFamily: 'AvenirNext',
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500, // Medium
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
 
+                    const SizedBox(width: 10),
+
+                    // Image
                     Image.asset(
                       'assets/images/Flood-amico.png',
-                      width: 140,
-                      height: 140,
-                      fit: BoxFit.cover,
+                      width: 120,
+                      height: 120,
+                      fit: BoxFit.contain,
                     ),
                   ],
                 ),
@@ -2632,22 +1986,18 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          ///New Added
           /// Main Sheet
           if (showMainSheet)
             DraggableScrollableSheet(
-              initialChildSize: 0.45, // start mid-screen
-              minChildSize: 0.25, // drag down to close
-              maxChildSize: 0.95, // full screen
+              initialChildSize: 0.45,
+              minChildSize: 0.25,
+              maxChildSize: 0.95,
               snap: true,
               snapSizes: const [0.45, 0.95],
-
               builder: (context, scrollController) {
                 return GestureDetector(
-                  // Drag from top handle
                   onVerticalDragUpdate: (details) {
-                    // Only allow dragging if a vehicle is selected
-                    if (selectedVehicle.isNotEmpty) {
+                    if (appManager.selectedVehicle != null) {
                       scrollController.jumpTo(
                         scrollController.offset - details.delta.dy,
                       );
@@ -2655,77 +2005,87 @@ class _MapScreenState extends State<MapScreen> {
                   },
                   child: NotificationListener<DraggableScrollableNotification>(
                     onNotification: (notification) {
-                      // Only allow closing if a vehicle is selected
-                      if (selectedVehicle.isNotEmpty &&
+                      if (appManager.selectedVehicle != null &&
                           notification.extent <= 0.25) {
                         setState(() => showMainSheet = false);
                       }
                       return true;
                     },
                     child: Container(
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.vertical(
-                          top: Radius.circular(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white, // clean white background
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(24),
                         ),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black26,
-                            blurRadius: 10,
-                            offset: Offset(0, -2),
+                            blurRadius: 12,
+                            offset: const Offset(0, -3),
                           ),
                         ],
                       ),
                       child: Column(
                         children: [
-                          // DRAG HANDLE
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 12),
                           Center(
                             child: Container(
-                              width: 40,
-                              height: 5,
+                              width: 50,
+                              height: 6,
                               decoration: BoxDecoration(
-                                color: Colors.grey,
-                                borderRadius: BorderRadius.circular(10),
+                                color: Colors.grey[400],
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 12),
 
-                          // SCROLLABLE CONTENT
                           Expanded(
                             child: SingleChildScrollView(
                               controller: scrollController,
                               physics: const ClampingScrollPhysics(),
-                              padding: const EdgeInsets.all(20),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 0,
+                              ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   // HEADER
                                   Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Icon(
-                                        Icons.emoji_transportation,
-                                        size: 32,
-                                        color: color1_2,
+                                        Icons.directions_car_filled,
+                                        size: 34,
+                                        color: Colors.blueAccent,
                                       ),
-                                      const SizedBox(width: 10),
+                                      const SizedBox(width: 12),
                                       Expanded(
                                         child: Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
-                                          children: [
-                                            const Text(
-                                              "Select Vehicle",
+                                          children: const [
+                                            Text(
+                                              "Pick a Vehicle",
                                               style: TextStyle(
+                                                fontFamily: 'AvenirNext',
                                                 fontSize: 20,
-                                                fontWeight: FontWeight.bold,
+                                                fontWeight:
+                                                    FontWeight.w700, // Bold
+                                                color: Colors.black87,
                                               ),
                                             ),
+                                            SizedBox(height: 2),
                                             Text(
-                                              "Description",
+                                              "Choose from the options below",
                                               style: TextStyle(
-                                                color: Colors.grey[600],
+                                                fontFamily: 'AvenirNext',
+                                                fontSize: 14,
+                                                fontWeight:
+                                                    FontWeight.w400, // Regular
+                                                color: Colors.black54,
                                               ),
                                             ),
                                           ],
@@ -2733,171 +2093,291 @@ class _MapScreenState extends State<MapScreen> {
                                       ),
                                     ],
                                   ),
-
-                                  const SizedBox(height: 20),
+                                  const SizedBox(height: 18),
 
                                   // VEHICLE SELECTION
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceAround,
-                                    children: [
-                                      vehicleSelection(
-                                        name: 'Motorcycle',
-                                        imagePath:
-                                            'assets/images/3d-images/Motorcycle-3d.png',
-                                        onTap: () {
-                                          setState(
-                                            () =>
-                                                selectedVehicle = 'Motorcycle',
-                                          );
-                                          VehicleInfoPopup.show(
-                                            context,
-                                            "Motorcycle",
-                                            onConfirm: () {
+                                  SizedBox(
+                                    height: 140,
+                                    child: SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      physics: const BouncingScrollPhysics(),
+                                      child: Row(
+                                        children: [
+                                          vehicleSelection(
+                                            name: 'Pedestrian',
+                                            imagePath:
+                                                VehicleDict
+                                                    .vehicleList[VehicleType
+                                                    .pedestrian]!['icon-url'],
+                                            highlightColor: Colors.blueAccent,
+                                            onTap: () {
                                               setState(() {
-                                                showMainSheet = false;
-                                                showDirectionSheet = true;
-                                                _goToUser();
+                                                _tempSelectedVehicle =
+                                                    _selectedVehicle;
+                                                _selectedVehicle =
+                                                    VehicleType.pedestrian;
                                               });
+
+                                              VehicleInfoPopup.show(
+                                                context,
+                                                VehicleType.pedestrian,
+                                                onConfirm: () {
+                                                  setState(() {
+                                                    _selectedVehicle =
+                                                        VehicleType.pedestrian;
+                                                    appManager.selectedVehicle =
+                                                        _selectedVehicle;
+                                                    showMainSheet = false;
+                                                    showDirectionSheet = true;
+                                                    _goToUser();
+                                                  });
+                                                },
+                                                onCancel: () {
+                                                  setState(() {
+                                                    _selectedVehicle =
+                                                        _tempSelectedVehicle;
+                                                  });
+                                                },
+                                              );
                                             },
-                                          );
-                                        },
-                                      ),
-                                      vehicleSelection(
-                                        name: 'Car',
-                                        imagePath:
-                                            'assets/images/3d-images/car-3d.png',
-                                        onTap: () {
-                                          setState(
-                                            () => selectedVehicle = 'Car',
-                                          );
-                                          VehicleInfoPopup.show(
-                                            context,
-                                            "Car",
-                                            onConfirm: () {
+                                          ),
+
+                                          const SizedBox(width: 16),
+
+                                          vehicleSelection(
+                                            name: 'Bicycle',
+                                            imagePath:
+                                                VehicleDict
+                                                    .vehicleList[VehicleType
+                                                    .bicycle]!['icon-url'],
+                                            highlightColor: Colors.blueAccent,
+                                            onTap: () {
                                               setState(() {
-                                                showMainSheet = false;
-                                                showDirectionSheet = true;
-                                                _goToUser();
+                                                _tempSelectedVehicle =
+                                                    _selectedVehicle;
+                                                _selectedVehicle =
+                                                    VehicleType.bicycle;
                                               });
+
+                                              VehicleInfoPopup.show(
+                                                context,
+                                                VehicleType.bicycle,
+                                                onConfirm: () {
+                                                  setState(() {
+                                                    _selectedVehicle =
+                                                        VehicleType.bicycle;
+                                                    showMainSheet = false;
+                                                    showDirectionSheet = true;
+                                                    _goToUser();
+                                                  });
+                                                },
+                                                onCancel: () {
+                                                  setState(() {
+                                                    _selectedVehicle =
+                                                        _tempSelectedVehicle;
+                                                  });
+                                                },
+                                              );
                                             },
-                                          );
-                                        },
-                                      ),
-                                      vehicleSelection(
-                                        name: 'Truck',
-                                        imagePath:
-                                            'assets/images/3d-images/truck-3d.png',
-                                        onTap: () {
-                                          setState(
-                                            () => selectedVehicle = 'Truck',
-                                          );
-                                          VehicleInfoPopup.show(
-                                            context,
-                                            "Truck",
-                                            onConfirm: () {
+                                          ),
+
+                                          const SizedBox(width: 16),
+
+                                          vehicleSelection(
+                                            name: 'Motorcycle',
+                                            imagePath:
+                                                VehicleDict
+                                                    .vehicleList[VehicleType
+                                                    .motorcycle]!['icon-url'],
+                                            highlightColor: Colors.blueAccent,
+                                            onTap: () {
                                               setState(() {
-                                                showMainSheet = false;
-                                                showDirectionSheet = true;
-                                                _goToUser();
+                                                _tempSelectedVehicle =
+                                                    _selectedVehicle;
+                                                _selectedVehicle =
+                                                    VehicleType.motorcycle;
                                               });
+
+                                              VehicleInfoPopup.show(
+                                                context,
+                                                VehicleType.motorcycle,
+                                                onConfirm: () {
+                                                  setState(() {
+                                                    _selectedVehicle =
+                                                        VehicleType.motorcycle;
+                                                    showMainSheet = false;
+                                                    showDirectionSheet = true;
+                                                    _goToUser();
+                                                  });
+                                                },
+                                                onCancel: () {
+                                                  setState(() {
+                                                    _selectedVehicle =
+                                                        _tempSelectedVehicle;
+                                                  });
+                                                },
+                                              );
                                             },
-                                          );
-                                        },
+                                          ),
+
+                                          const SizedBox(width: 16),
+
+                                          vehicleSelection(
+                                            name: 'Car',
+                                            imagePath:
+                                                VehicleDict
+                                                    .vehicleList[VehicleType
+                                                    .car]!['icon-url'],
+                                            highlightColor: Colors.blueAccent,
+                                            onTap: () {
+                                              setState(() {
+                                                _tempSelectedVehicle =
+                                                    _selectedVehicle;
+                                                _selectedVehicle =
+                                                    VehicleType.car;
+                                              });
+
+                                              VehicleInfoPopup.show(
+                                                context,
+                                                VehicleType.car,
+                                                onConfirm: () {
+                                                  setState(() {
+                                                    appManager.selectedVehicle =
+                                                        VehicleType.car;
+                                                    showMainSheet = false;
+                                                    showDirectionSheet = true;
+                                                    _goToUser();
+                                                  });
+                                                },
+                                                onCancel: () {
+                                                  setState(() {
+                                                    _selectedVehicle =
+                                                        _tempSelectedVehicle;
+                                                  });
+                                                },
+                                              );
+                                            },
+                                          ),
+
+                                          const SizedBox(width: 16),
+
+                                          vehicleSelection(
+                                            name: 'Truck',
+                                            imagePath:
+                                                VehicleDict
+                                                    .vehicleList[VehicleType
+                                                    .truck]!['icon-url'],
+                                            highlightColor: Colors.blueAccent,
+                                            onTap: () {
+                                              setState(() {
+                                                _tempSelectedVehicle =
+                                                    _selectedVehicle;
+                                                _selectedVehicle =
+                                                    VehicleType.truck;
+                                              });
+
+                                              VehicleInfoPopup.show(
+                                                context,
+                                                VehicleType.truck,
+                                                onConfirm: () {
+                                                  setState(() {
+                                                    _selectedVehicle =
+                                                        VehicleType.truck;
+                                                    showMainSheet = false;
+                                                    showDirectionSheet = true;
+                                                    _goToUser();
+                                                  });
+                                                },
+                                                onCancel: () {
+                                                  setState(() {
+                                                    _selectedVehicle =
+                                                        _tempSelectedVehicle;
+                                                  });
+                                                },
+                                              );
+                                            },
+                                          ),
+                                        ],
                                       ),
-                                    ],
+                                    ),
                                   ),
+                                  const SizedBox(height: 22),
 
-                                  const SizedBox(height: 20),
-
+                                  // RELATED SECTION
                                   const Text(
                                     'Related',
                                     style: TextStyle(
+                                      fontFamily: 'AvenirNext',
                                       fontSize: 20,
-                                      fontWeight: FontWeight.w600,
+                                      fontWeight: FontWeight.w600, // Demi
+                                      color: Colors.black87,
                                     ),
                                   ),
-                                  const SizedBox(height: 15),
+                                  const SizedBox(height: 16),
 
-                                  ///Weather Card
+                                  // WEATHER CARD
                                   Container(
-                                    padding: EdgeInsets.all(15),
+                                    padding: const EdgeInsets.all(16),
                                     decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                        colors: [Colors.white, Colors.white70],
-                                      ),
+                                      color: Colors.blue[50],
+                                      borderRadius: BorderRadius.circular(16),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.black.withOpacity(0.15),
-                                          spreadRadius: 1,
-                                          blurRadius: 3,
-                                          offset: const Offset(0, 0),
+                                          color: Colors.black12,
+                                          blurRadius: 6,
+                                          offset: const Offset(0, 2),
                                         ),
                                       ],
-                                      borderRadius: BorderRadius.circular(15),
                                     ),
                                     child: Row(
                                       mainAxisAlignment:
                                           MainAxisAlignment.spaceAround,
                                       children: [
-                                        // Weather Icon
                                         Column(
                                           children: [
-                                            if (iconCode.isNotEmpty)
+                                            if (_iconCode.isNotEmpty)
                                               Image.asset(
-                                                'assets/images/weather/$iconCode.png',
-                                                width: 100,
-                                                height: 100,
+                                                'assets/images/weather/${_iconCode}.png',
+                                                width: 90,
+                                                height: 90,
                                                 fit: BoxFit.contain,
                                               )
                                             else
                                               SizedBox(
-                                                width: 100,
-                                                height: 100,
+                                                width: 90,
+                                                height: 90,
                                                 child: Center(
                                                   child:
                                                       CircularProgressIndicator(
                                                         strokeWidth: 2,
+                                                        color:
+                                                            Colors.blueAccent,
                                                       ),
                                                 ),
                                               ),
                                           ],
                                         ),
-
-                                        // Weather Info
                                         Column(
                                           children: [
                                             Text(
-                                              currentTime.isNotEmpty
-                                                  ? currentTime
-                                                  : '--:--',
-                                              style: TextStyle(
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-
-                                            Text(
-                                              // ignore: unnecessary_null_comparison
-                                              temperature != null
-                                                  ? '${temperature}°C'
+                                              _temperature.isNotEmpty
+                                                  ? '${_temperature}°C'
                                                   : '--°C',
-                                              style: TextStyle(
-                                                color: color1,
+                                              style: const TextStyle(
+                                                fontFamily: 'AvenirNext',
+                                                color: Colors.blueAccent,
                                                 fontSize: 30,
-                                                fontWeight: FontWeight.w700,
+                                                fontWeight: FontWeight.w800,
                                               ),
                                             ),
-
                                             Text(
-                                              weatherDescription.isNotEmpty
-                                                  ? weatherDescription
+                                              _description.isNotEmpty
+                                                  ? _description
                                                   : 'Loading...',
-                                              style: TextStyle(
+                                              style: const TextStyle(
+                                                fontFamily: 'AvenirNext',
                                                 fontSize: 15,
-                                                fontWeight: FontWeight.w600,
+                                                fontWeight: FontWeight.w500,
                                               ),
                                             ),
                                           ],
@@ -2905,9 +2385,9 @@ class _MapScreenState extends State<MapScreen> {
                                       ],
                                     ),
                                   ),
+                                  const SizedBox(height: 16),
 
-                                  SizedBox(height: 15),
-
+                                  // BOTTOM CARDS
                                   Row(
                                     children: [
                                       // LEFT BIG CARD
@@ -2924,13 +2404,12 @@ class _MapScreenState extends State<MapScreen> {
                                             height: 120,
                                             padding: const EdgeInsets.all(12),
                                             decoration: BoxDecoration(
-                                              color: const Color(0xFF8670EA),
+                                              color: Colors.blueAccent,
                                               borderRadius:
-                                                  BorderRadius.circular(12),
+                                                  BorderRadius.circular(16),
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: Colors.black
-                                                      .withOpacity(0.12),
+                                                  color: Colors.black12,
                                                   blurRadius: 6,
                                                   offset: const Offset(0, 3),
                                                 ),
@@ -2946,10 +2425,11 @@ class _MapScreenState extends State<MapScreen> {
                                                     fit: BoxFit.contain,
                                                   ),
                                                 ),
-                                                Text(
+                                                const Text(
                                                   "Recent Alerts",
                                                   textAlign: TextAlign.center,
-                                                  style: const TextStyle(
+                                                  style: TextStyle(
+                                                    fontFamily: 'AvenirNext',
                                                     color: Colors.white,
                                                     fontSize: 18,
                                                     fontWeight: FontWeight.w600,
@@ -2960,8 +2440,7 @@ class _MapScreenState extends State<MapScreen> {
                                           ),
                                         ),
                                       ),
-
-                                      const SizedBox(width: 10),
+                                      const SizedBox(width: 12),
 
                                       // RIGHT COLUMN
                                       Expanded(
@@ -2975,14 +2454,16 @@ class _MapScreenState extends State<MapScreen> {
                                                   '/flood-tips',
                                                 );
                                               },
-                                              child: _smallCard(
-                                                color: const Color(0xFF40DCD1),
+                                              child: smallCard(
+                                                color: Colors
+                                                    .lightBlueAccent
+                                                    .shade100,
                                                 image:
                                                     'assets/images/3d-images/rescue-3d.png',
                                                 text: "Flood Tips",
                                               ),
                                             ),
-                                            const SizedBox(height: 10),
+                                            const SizedBox(height: 12),
                                             GestureDetector(
                                               onTap: () {
                                                 Navigator.pushNamed(
@@ -2990,8 +2471,9 @@ class _MapScreenState extends State<MapScreen> {
                                                   '/rescue-call',
                                                 );
                                               },
-                                              child: _smallCard(
-                                                color: const Color(0xFFE59864),
+                                              child: smallCard(
+                                                color:
+                                                    Colors.blueAccent.shade100,
                                                 image:
                                                     'assets/images/3d-images/help-3d.png',
                                                 text: "Rescue Call",
@@ -3002,6 +2484,49 @@ class _MapScreenState extends State<MapScreen> {
                                       ),
                                     ],
                                   ),
+
+                                  const SizedBox(height: 30),
+                                  const Divider(
+                                    color: Colors.grey,
+                                    thickness: 1,
+                                    indent: 20,
+                                    endIndent: 20,
+                                  ),
+                                  const SizedBox(height: 30),
+
+                                  primaryButton(
+                                    text: "Clear Route",
+                                    onTap: () {
+                                      setState(() {
+                                        _endLocationCoords = null;
+                                        _startLocationCoords = null;
+                                        _tempPosition = null;
+                                        _endLocationName = "";
+                                        _startLocationName = "";
+                                        _tempName = null;
+                                        _endMarker = {};
+                                        _startMarker = {};
+                                        _tempMarker = {};
+                                        _mode = null;
+                                        _clearRoute();
+                                        _clearTempPins();
+                                        showMainSheet = false;
+                                        showDirectionSheet = true;
+
+                                        _goToUser();
+                                      });
+                                    },
+                                  ),
+                                  const SizedBox(height: 16),
+
+                                  primaryButton2(
+                                    text: "Leave Navigation",
+                                    onTap: () {
+                                      SystemNavigator.pop();
+                                    },
+                                  ),
+
+                                  const SizedBox(height: 16),
                                 ],
                               ),
                             ),
@@ -3013,256 +2538,16 @@ class _MapScreenState extends State<MapScreen> {
                 );
               },
             ),
-        ],
-      ),
-    );
-  }
+          Consumer<AlertService>(
+            builder: (context, alertService, _) {
+              if (alertService.nearAlertZone && alertService.toastShown) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  showNearFloodAlertToast(context);
+                });
+              }
 
-  Widget _smallCard({
-    required Color color,
-    required String image,
-    required String text,
-  }) {
-    return Container(
-      height: 55,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 5,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 32,
-            height: 32,
-            child: Image.asset(image, fit: BoxFit.contain),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            text,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget vehicleSelection({
-    required String name,
-    required String imagePath,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AnimatedContainer(
-            duration: const Duration(
-              milliseconds: 250,
-            ), // ✅ smooth color animation
-            curve: Curves.easeInOut,
-            height: 90,
-            width: 90,
-            decoration: BoxDecoration(
-              color: (selectedVehicle == name) ? color1 : color1_3,
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: Image.asset(imagePath, fit: BoxFit.contain),
-          ),
-
-          const SizedBox(height: 6),
-
-          Text(
-            name,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: color1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget bottomButton({
-    required VoidCallback onTap,
-    required String imagePath,
-    required String label,
-    Color iconColor = color2,
-    Color buttonColor = Colors.white,
-  }) {
-    bool _isPressed = false;
-
-    return Expanded(
-      child: InkWell(
-        onTap: () {
-          if (_isPressed) return;
-          _isPressed = true;
-          onTap();
-          Future.delayed(const Duration(milliseconds: 350), () {
-            _isPressed = false;
-          });
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-          decoration: BoxDecoration(
-            color: buttonColor,
-            borderRadius: BorderRadius.zero,
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: Image.asset(
-                  imagePath,
-                  key: UniqueKey(), // ✅ UniqueKey avoids duplicate key bug
-                  width: 25,
-                  height: 25,
-                  fit: BoxFit.contain,
-                  color: iconColor,
-                  colorBlendMode: BlendMode.srcIn,
-                ),
-              ),
-              const SizedBox(height: 2),
-              AnimatedDefaultTextStyle(
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: iconColor,
-                ),
-                duration: const Duration(milliseconds: 300),
-                child: Text(label),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget selectVehicle({
-    required String name,
-    required String imagePath,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 40,
-        width: 40,
-        decoration: BoxDecoration(
-          color: (selectedVehicle == name) ? color1 : Colors.white,
-          borderRadius: BorderRadius.circular(40 / 2), // perfect circle
-        ),
-        child: Center(
-          child: Image.asset(
-            imagePath,
-            width: 25, // image slightly smaller than container
-            height: 25,
-            fit: BoxFit.contain,
-            color: (selectedVehicle == name)
-                ? Colors.white
-                : color2, // apply green tint
-            colorBlendMode:
-                BlendMode.srcIn, // ensures the color replaces the original
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Reusable widget
-  Widget _sensorToggle({
-    required String title,
-    required String description,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 3)),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  description,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-              ],
-            ),
-          ),
-
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeColor: color1, // your main app primary color
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _infoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 16)),
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _statusRow(String label, String value, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 16)),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: color,
-            ),
+              return const SizedBox.shrink();
+            },
           ),
         ],
       ),

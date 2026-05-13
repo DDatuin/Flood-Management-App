@@ -1,63 +1,50 @@
-import 'dart:async';
-import 'package:floodmonitoring/services/location.dart';
-import 'package:floodmonitoring/services/weather.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:floodmonitoring/core/services/location.dart';
+import 'package:floodmonitoring/utils/data_classes.dart';
+import 'package:flutter/material.dart';
 
-class AppManager {
-  static final AppManager _instance = AppManager._internal();
+import 'package:maplibre_gl/maplibre_gl.dart';
 
-  factory AppManager() {
-    return _instance;
-  }
+class AppManager extends ChangeNotifier {
+  MapStyleType currentMapStyle = MapStyleType.liberty;
+  OverlayType currentOverlaySelected = OverlayType.none;
 
-  AppManager._internal();
+  VehicleType? selectedVehicle;
+  String selectedVehicleType = '';
 
-  //app-level-persistent data
-  String temperature = '';
-  String description = '';
-  String iconCode = '';
-  Position? currentPosition;
+  String startLocationName = '';
+  String endLocationName = '';
 
-  //private members
-  Timer? _backendPollingTimer;
+  LatLng? startLocationCoords;
+  LatLng? endLocationCoords;
 
-  //public functions
-  void start() {
-    _startPollingBackend();
-  }
+  bool selectingStartLocation = false;
+  bool selectingEndLocation = false;
 
-  void stop() {
-    _backendPollingTimer?.cancel();
-  }
+  String selectedSensorId = '';
 
-  void dispose() {
-    stop();
-  }
+  void start() async {
+    final ok = await LocationServicePermission.ensureLocationReady();
 
-  Future<bool> updateLocationAndWeather() async {
-    final position = await LocationService.getCurrentLocation();
-
-    if (position == null) return false;
-
-    currentPosition = position;
-
-    final weather = await loadWeather(position.latitude, position.longitude);
-
-    if (weather != null) {
-      temperature = weather['temperature'].toString();
-      description = weather['description'];
-      iconCode = weather['iconCode'];
+    if (!ok) {
+      print("Location permission not granted");
+      return;
     }
 
-    return true;
+    print("Location permitted, starting services.");
   }
 
-  //private functions
-  void _startPollingBackend() {
-    _backendPollingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      //polling code for extracting latest sensor data from the django backend
+  void setEndLocation(LatLng position) {
+    selectingEndLocation = true;
+    endLocationCoords = position;
+  }
 
-      print("[APP_MANAGER] Polling backend...");
-    });
+  void setMapStyle(MapStyleType style) {
+    currentMapStyle = style;
+    notifyListeners();
+  }
+
+  void setOverlay(OverlayType overlay) {
+    currentOverlaySelected = overlay;
+    notifyListeners();
   }
 }
