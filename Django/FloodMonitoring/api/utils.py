@@ -1,6 +1,8 @@
 from rest_framework.response import Response
 import math
 
+from api.supabase.utils import get_latest_data_from_supabase, get_specific_sensor_details_from_supabase
+
 VEHICLE_PASSABLE = {
     "pedestrian": ["nf"],
     "bicycle": ["nf"],
@@ -8,6 +10,43 @@ VEHICLE_PASSABLE = {
     "car": ["nf", "patv"],
     "truck": ["nf", "patv", "nplv"],
 }
+
+def format_latest_sensor_data():
+    
+    latest_sensor_data = get_latest_data_from_supabase()
+
+    result = {}
+
+    for row in latest_sensor_data:
+        sensor_id = row["sensor_id"]
+
+        details = get_specific_sensor_details_from_supabase(sensor_id)
+
+        prediction = row.get("prediction") or {}
+
+        result[sensor_id] = {
+            #datapoint-specific details
+            "datetime": row["timestamp"],
+
+            #sensor-specific details
+            "latlong": details['latlong'],
+            "ground_distance": details['ground_distance'],
+            "radius": details['radius'],
+            "location_name": details['location_name'],
+
+            #flood-info-specific details
+            "wlvl_now": row.get("wlvl_now"),
+            "flood_cat_now": row.get("flood_cat_now"),
+            "forecast": prediction.get("forecast"),
+            "flood_cat": prediction.get("forecast_category"),
+
+            #weather-specific details
+            "temperature": row.get("temperature"),
+            "pressure": row.get("pressure"),
+            "description": row.get("description")
+        }
+
+    return result
 
 def find_category(prediction: float):
     if prediction >= 0 and prediction < 0.1:

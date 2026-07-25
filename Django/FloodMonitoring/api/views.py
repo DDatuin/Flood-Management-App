@@ -4,7 +4,7 @@ from django.http import JsonResponse
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from api.utils import api_response, build_avoid_polygons, normalize_avoid_zones
+from api.utils import api_response, build_avoid_polygons, format_latest_sensor_data, normalize_avoid_zones
 from api.util.data_collector import run_data_collection_cycle
 from .supabase.utils import (
     get_emergency_contacts_from_supabase, 
@@ -24,11 +24,13 @@ def run_data_collector(request):
     token = request.headers.get("Authorization")
 
     if token != f"Bearer {os.getenv('SECRET_TOKEN_FOR_LISTENER')}":
-        return JsonResponse({"ok": False})
+        return JsonResponse({"ok": False}) #different return object because cron job needs smaller return objects
 
-    run_data_collection_cycle()
+    response_ok = run_data_collection_cycle()
 
-    return JsonResponse({"ok": True})
+    if not response_ok:
+        return JsonResponse({"ok": False}) #different return object because cron job needs smaller return objects
+    return JsonResponse({"ok": True}) #different return object because cron job needs smaller return objects
 
 @api_view(['GET'])
 def get_sensor_details(request):
@@ -51,39 +53,7 @@ def get_latest_data(request):
     REQUEST:
     /api/latest-data/
     """
-
-    latest_sensor_data = get_latest_data_from_supabase()
-
-    result = {}
-
-    for row in latest_sensor_data:
-        sensor_id = row["sensor_id"]
-
-        details = get_specific_sensor_details_from_supabase(sensor_id)
-
-        prediction = row.get("prediction") or {}
-
-        result[sensor_id] = {
-            #datapoint-specific details
-            "datetime": row["timestamp"],
-
-            #sensor-specific details
-            "latlong": details['latlong'],
-            "ground_distance": details['ground_distance'],
-            "radius": details['radius'],
-            "location_name": details['location_name'],
-
-            #flood-info-specific details
-            "wlvl_now": row.get("wlvl_now"),
-            "flood_cat_now": row.get("flood_cat_now"),
-            "forecast": prediction.get("forecast"),
-            "flood_cat": prediction.get("forecast_category"),
-
-            #weather-specific details
-            "temperature": row.get("temperature"),
-            "pressure": row.get("pressure"),
-            "description": row.get("description")
-        }
+    result = format_latest_sensor_data()
 
     return api_response(
         success=True,
