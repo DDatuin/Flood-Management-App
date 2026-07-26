@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:floodmonitoring/services/api_configs.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 Future<Map<String, dynamic>?> loadWeather(
@@ -17,14 +18,14 @@ Future<Map<String, dynamic>?> loadWeather(
     final res = await http.get(uri);
 
     if (res.statusCode != 200) {
-      print("Weather request failed: ${res.statusCode}");
+      debugPrint("Weather request failed: ${res.statusCode}");
       return null;
     }
 
     final body = jsonDecode(res.body);
 
     if (body["success"] != true) {
-      print("Backend error: ${body["error"] ?? body["message"]}");
+      debugPrint("Backend error: ${body["error"] ?? body["message"]}");
       return null;
     }
 
@@ -40,7 +41,7 @@ Future<Map<String, dynamic>?> loadWeather(
       ),
     };
   } catch (e) {
-    print("Weather fetch exception: $e");
+    debugPrint("Weather fetch exception: $e");
     return null;
   }
 }

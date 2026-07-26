@@ -1,4 +1,3 @@
-import 'package:floodmonitoring/services/global.dart';
 import 'package:floodmonitoring/services/sensor_service.dart';
 import 'package:floodmonitoring/utils/converters.dart';
 import 'package:flutter/material.dart';

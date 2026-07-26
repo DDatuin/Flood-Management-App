@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:floodmonitoring/services/api_configs.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 class ThresholdService {
@@ -42,14 +43,14 @@ class ThresholdService {
           });
         }
 
-        print("Vehicle thresholds loaded: ${tempThresholds.length}");
+        debugPrint("Vehicle thresholds loaded: ${tempThresholds.length}");
       } else {
-        print("Failed to fetch thresholds: ${response["message"]}");
+        debugPrint("Failed to fetch thresholds: ${response["message"]}");
       }
 
       return tempThresholds;
     } catch (e) {
-      print("Error fetching thresholds: $e");
+      debugPrint("Error fetching thresholds: $e");
       return [];
     }
   }

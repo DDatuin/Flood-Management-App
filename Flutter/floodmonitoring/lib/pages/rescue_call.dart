@@ -93,12 +93,14 @@ class _RescueCallState extends State<RescueCall> {
           );
         });
 
-        print("Contacts updated: ${emergencyContacts.length} items loaded.");
+        debugPrint(
+          "Contacts updated: ${emergencyContacts.length} items loaded.",
+        );
       } else {
-        print("API returned invalid response: ${response.toString()}");
+        debugPrint("API returned invalid response: ${response.toString()}");
       }
     } catch (e) {
-      print("Error fetching emergency contacts: $e");
+      debugPrint("Error fetching emergency contacts: $e");
     }
   }
 

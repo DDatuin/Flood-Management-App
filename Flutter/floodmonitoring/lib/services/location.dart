@@ -12,7 +12,7 @@ class LocationService {
   static Future<Position?> getCurrentLocation(BuildContext context) async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      print('Location services are disabled.');
+      debugPrint('Location services are disabled.');
       return null;
     }
 
@@ -20,7 +20,7 @@ class LocationService {
 
     // If permission is Denied Forever, we quit the app
     if (permission == LocationPermission.deniedForever) {
-      print('Permanently denied. Quitting app...');
+      debugPrint('Permanently denied. Quitting app...');
       await SystemNavigator.pop(); // This closes the app
       return null;
     }
@@ -29,7 +29,7 @@ class LocationService {
       permission = await Geolocator.requestPermission();
 
       if (permission == LocationPermission.denied) {
-        print('User denied permission. Quitting app...');
+        debugPrint('User denied permission. Quitting app...');
         await SystemNavigator.pop(); // Close app if they hit deny
         return null;
       }
@@ -37,7 +37,7 @@ class LocationService {
       // If they just accepted (WhileInUse or Always), we RESTART
       if (permission == LocationPermission.whileInUse ||
           permission == LocationPermission.always) {
-        print('Permission accepted! Restarting app...');
+        debugPrint('Permission accepted! Restarting app...');
         Phoenix.rebirth(context); // This restarts the app
         return null;
       }

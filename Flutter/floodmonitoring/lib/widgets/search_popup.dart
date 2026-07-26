@@ -102,30 +102,30 @@ class _PlaceSearchPopupState extends State<PlaceSearchPopup> {
         ApiConfig.locationSearch,
       ).replace(queryParameters: {"q": input});
 
-      print("SEARCH URI: $uri");
+      debugPrint("SEARCH URI: $uri");
 
       final res = await http.get(uri);
 
-      print("STATUS CODE: ${res.statusCode}");
-      print("RAW BODY: ${res.body}");
+      debugPrint("STATUS CODE: ${res.statusCode}");
+      debugPrint("RAW BODY: ${res.body}");
 
       final response = jsonDecode(res.body);
 
-      print("DECODED RESPONSE: $response");
+      debugPrint("DECODED RESPONSE: $response");
 
       if (res.statusCode == 200 && response["success"] == true) {
-        print("RESULT DATA: ${response["data"]}");
+        debugPrint("RESULT DATA: ${response["data"]}");
 
         setState(() {
           _results = List<Map<String, dynamic>>.from(response["data"]);
         });
 
-        print("RESULT COUNT: ${_results.length}");
+        debugPrint("RESULT COUNT: ${_results.length}");
       } else {
-        print("SEARCH FAILED");
+        debugPrint("SEARCH FAILED");
       }
     } catch (e) {
-      print("Place search error: $e");
+      debugPrint("Place search error: $e");
     } finally {
       setState(() => _loading = false);
     }
@@ -156,7 +156,7 @@ class _PlaceSearchPopupState extends State<PlaceSearchPopup> {
         Navigator.pop(context, {"name": name, "latLng": selectedLatLng});
       }
     } catch (e) {
-      print("Place selection error: $e");
+      debugPrint("Place selection error: $e");
     }
   }
 

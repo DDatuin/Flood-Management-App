@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:floodmonitoring/services/api_configs.dart';
 import 'package:floodmonitoring/services/sensor_service.dart';
-import 'package:floodmonitoring/services/weather.dart';
 import 'package:floodmonitoring/utils/converters.dart';
 import 'package:floodmonitoring/utils/style.dart';
 import 'package:flutter/material.dart';
@@ -65,7 +64,7 @@ class _InfoState extends State<Info> {
 
       var response = jsonDecode(res.body);
 
-      print(response);
+      debugPrint(response);
 
       if (res.statusCode == 200 && response['success'] == true) {
         final data = response['data'];
@@ -79,10 +78,10 @@ class _InfoState extends State<Info> {
           labels = List<String>.from(data['labels']);
         });
 
-        print("History Loaded Successfully");
+        debugPrint("History Loaded Successfully");
       }
     } catch (e) {
-      print("Error fetching sensor history: $e");
+      debugPrint("Error fetching sensor history: $e");
     }
   }
 

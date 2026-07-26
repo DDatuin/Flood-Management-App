@@ -51,8 +51,8 @@ class _MapScreenState extends State<MapScreen> {
 
   final Set<Marker> _markers = {};
 
-  Set<Circle> _circles = {};
-  Set<Polyline> _polylines = {};
+  final Set<Circle> _circles = {};
+  final Set<Polyline> _polylines = {};
 
   CameraPosition? _lastPosition;
 
@@ -153,7 +153,7 @@ class _MapScreenState extends State<MapScreen> {
   int currentMenuCardPage = 0;
 
   bool useOpenFreeMapStyle = false;
-  PageController _carouselController = PageController(initialPage: 0);
+  final PageController _carouselController = PageController(initialPage: 0);
   Timer? _carouselTimer;
   final int _carouselCardCount = 3;
 

@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -45,8 +46,9 @@ class AssetTileProvider implements TileProvider {
 
         try {
           final ByteData data = await rootBundle.load(fallbackPath);
-          print(
-              'Tile missing at z=$z x=$x y=$y → using fallback z=$fallbackZoom x=$parentX y=$parentY');
+          debugPrint(
+            'Tile missing at z=$z x=$x y=$y → using fallback z=$fallbackZoom x=$parentX y=$parentY',
+          );
           return Tile(256, 256, data.buffer.asUint8List());
         } catch (_) {
           fallbackZoom--;
@@ -54,7 +56,7 @@ class AssetTileProvider implements TileProvider {
       }
 
       // Return an empty tile if no assets or fallbacks are found
-      print('Tile missing at z=$z x=$x y=$y → returning empty tile');
+      debugPrint('Tile missing at z=$z x=$x y=$y → returning empty tile');
       return Tile(256, 256, Uint8List(0));
     }
   }
