@@ -37,6 +37,7 @@ class _InfoState extends State<Info> {
     super.initState();
 
     _sensorUpdates = _sensorService.stream.listen((_) {
+      debugPrint("Event Signal Received (Info Page)");
       if (!mounted) return;
       setState(() {});
     });

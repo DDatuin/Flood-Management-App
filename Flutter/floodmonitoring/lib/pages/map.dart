@@ -170,7 +170,7 @@ class _MapScreenState extends State<MapScreen> {
 
     //establish a listener
     _sensorUpdates = _sensorService.stream.listen((_) {
-      debugPrint("Event Signal Received");
+      debugPrint("Event Signal Received (Map Page)");
       _receivedInitialData = true;
       _fallbackTimer?.cancel();
 
@@ -247,6 +247,7 @@ class _MapScreenState extends State<MapScreen> {
     await _loadCurrentLocation();
 
     _connectSSE();
+
     if (mounted) {
       _addUserMarker();
 
