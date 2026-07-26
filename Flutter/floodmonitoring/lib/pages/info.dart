@@ -33,14 +33,14 @@ class _InfoState extends State<Info> {
   @override
   void initState() {
     super.initState();
-    fetchDataForSensor(sensorViewInfo);
+    // fetchDataForSensor(sensorViewInfo);
     getWeather(sensorViewInfo);
     loadSensorHistoryView(sensorViewInfo);
 
-    _timer = Timer.periodic(
-      const Duration(minutes: 1),
-      (_) => fetchDataForSensor(sensorViewInfo),
-    );
+    // _timer = Timer.periodic(
+    //   const Duration(minutes: 1),
+    //   (_) => fetchDataForSensor(sensorViewInfo),
+    // );
   }
 
   @override
@@ -53,14 +53,14 @@ class _InfoState extends State<Info> {
   // LOGIC / HELPER FUNCTIONS
   // ========================================
 
-  /// ----- FETCH DATA FOR SENSOR -----
-  Future<void> fetchDataForSensor(String sensorId) async {
-    final data = await FloodLevel.fetchLatestSensorData(sensorId);
+  // /// ----- FETCH DATA FOR SENSOR -----
+  // Future<void> fetchDataForSensor(String sensorId) async {
+  //   final data = await FloodLevel.fetchLatestSensorData(sensorId);
 
-    setState(() {
-      sensors[sensorId]!['sensorData'] = data;
-    });
-  }
+  //   setState(() {
+  //     sensors[sensorId]!['sensorData'] = data;
+  //   });
+  // }
 
   /// ----- GET WEATHER -----
   Future<void> getWeather(String sensorId) async {
