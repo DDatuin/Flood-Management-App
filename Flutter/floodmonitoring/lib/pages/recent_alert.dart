@@ -1,4 +1,5 @@
 import 'package:floodmonitoring/services/global.dart';
+import 'package:floodmonitoring/services/sensor_service.dart';
 import 'package:floodmonitoring/utils/converters.dart';
 import 'package:flutter/material.dart';
 import 'package:floodmonitoring/widgets/custom_app_bar.dart';
@@ -12,7 +13,7 @@ class RecentAlert extends StatefulWidget {
 
 class _RecentAlertState extends State<RecentAlert> {
   final Color themeBlue = Colors.blueAccent;
-
+  final SensorService _sensorService = SensorService.instance;
 
   // ========================================
   // BUILD / CORE UI
@@ -20,9 +21,9 @@ class _RecentAlertState extends State<RecentAlert> {
 
   @override
   Widget build(BuildContext context) {
-
     /// ----- MAP SENSOR DATA TO ALERT LIST -----
-    final List<Map<String, dynamic>> alerts = sensors.entries.map((e) {
+    final List<Map<String, dynamic>>
+    alerts = _sensorService.sensors.entries.map((e) {
       final name = e.key;
       final data = e.value;
       final sensor = data["sensorData"];
@@ -30,7 +31,8 @@ class _RecentAlertState extends State<RecentAlert> {
       return {
         "location": name,
         "status": sensor["status"],
-        "level": "Flood Level: ${UnitConverter.cmToFeet(double.tryParse(sensor['floodHeight'].toString()) ?? 0).toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')} ft",
+        "level":
+            "Flood Level: ${UnitConverter.cmToFeet(double.tryParse(sensor['floodHeight'].toString()) ?? 0).toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')} ft",
       };
     }).toList();
 
@@ -49,22 +51,22 @@ class _RecentAlertState extends State<RecentAlert> {
         padding: const EdgeInsets.all(16),
         child: activeAlerts.isEmpty
             ? Center(
-          child: Text(
-            "No active alerts",
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.black54,
-              fontFamily: 'AvenirNext',
-            ),
-          ),
-        )
+                child: Text(
+                  "No active alerts",
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.black54,
+                    fontFamily: 'AvenirNext',
+                  ),
+                ),
+              )
             : ListView.builder(
-          itemCount: activeAlerts.length,
-          itemBuilder: (context, index) {
-            final alert = activeAlerts[index];
-            return _alertCard(alert);
-          },
-        ),
+                itemCount: activeAlerts.length,
+                itemBuilder: (context, index) {
+                  final alert = activeAlerts[index];
+                  return _alertCard(alert);
+                },
+              ),
       ),
     );
   }

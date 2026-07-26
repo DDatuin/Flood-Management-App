@@ -2,24 +2,36 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:floodmonitoring/services/api_configs.dart';
 import 'package:floodmonitoring/services/global.dart';
+import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 
 class SensorService {
+  final StreamController<void> _sensorStreamController =
+      StreamController<void>.broadcast();
+  Stream<void> get stream => _sensorStreamController.stream;
+
+  bool _connected = false;
   StreamSubscription<String>? _subscription;
 
-  SensorService();
+  SensorService._();
+  static final SensorService instance = SensorService._();
+
+  final Map<String, Map<String, dynamic>> sensors = {};
 
   void connect({
-    required Function(Map<String, dynamic>) onData,
     Function()? onConnected,
     Function(dynamic error)? onError,
   }) async {
+    if (_connected) return;
     final request = http.Request("GET", Uri.parse(ApiConfig.sensorStream));
     final response = await request.send();
+
     if (response.statusCode != 200) {
       throw Exception("Unable to connect to SSE");
     }
+
+    _connected = true;
 
     onConnected?.call();
 
@@ -31,7 +43,12 @@ class SensorService {
             if (line.startsWith("data: ")) {
               final jsonData = jsonDecode(line.substring(6));
 
-              onData(jsonData);
+              final parsed = parseSensors(jsonData["data"]);
+              sensors
+                ..clear()
+                ..addAll(parsed);
+
+              _sensorStreamController.add(null);
             }
           },
           onError: onError,
@@ -41,27 +58,21 @@ class SensorService {
 
   Future<void> disconnect() async {
     await _subscription?.cancel();
+    _connected = false;
   }
 
-  Future<Map<String, Map<String, dynamic>>> loadSensorsFromAPI() async {
-    try {
-      final res = await http.get(Uri.parse(ApiConfig.latestData));
+  void dispose() {
+    _sensorStreamController.close();
+  }
 
-      if (res.statusCode != 200) {
-        return {};
-      }
+  Future<void> loadInitialSensors() async {
+    final sensorData = await _loadSensorsFromAPI();
 
-      final response = jsonDecode(res.body);
+    sensors
+      ..clear()
+      ..addAll(sensorData);
 
-      if (response["success"] != true) {
-        return {};
-      }
-
-      return parseSensors(response["data"]);
-    } catch (e) {
-      print("Error fethcing sensors: $e");
-      return {};
-    }
+    _sensorStreamController.add(null);
   }
 
   Map<String, Map<String, dynamic>> parseSensors(Map<String, dynamic> data) {
@@ -72,8 +83,8 @@ class SensorService {
       final forecastHeight =
           double.tryParse(item["forecast"].toString()) ?? 0.0;
 
-      final status = _getStatusText(floodHeight);
-      final forecastStatus = _getStatusText(forecastHeight);
+      final status = getStatusText(floodHeight);
+      final forecastStatus = getStatusText(forecastHeight);
 
       tempSensors[sensorId] = {
         "position": LatLng(
@@ -108,7 +119,7 @@ class SensorService {
     return tempSensors;
   }
 
-  static String _getStatusText(double floodHeightCm) {
+  static String getStatusText(double floodHeightCm) {
     if (selectedVehicle.isEmpty) return "";
 
     final vehicleThreshold = vehicleFloodThresholds.firstWhere(
@@ -122,6 +133,43 @@ class SensorService {
       return 'Warning';
     } else {
       return 'Danger';
+    }
+  }
+
+  void refreshStatuses() {
+    sensors.forEach((_, sensor) {
+      final sensorData = sensor["sensorData"];
+
+      final floodHeight = (sensorData["floodHeight"] as num).toDouble();
+
+      final forecast = (sensorData["forecast"] as num).toDouble();
+
+      sensorData["status"] = getStatusText(floodHeight);
+
+      sensorData["forecastedStatus"] = getStatusText(forecast);
+    });
+
+    _sensorStreamController.add(null);
+  }
+
+  Future<Map<String, Map<String, dynamic>>> _loadSensorsFromAPI() async {
+    try {
+      final res = await http.get(Uri.parse(ApiConfig.latestData));
+
+      if (res.statusCode != 200) {
+        return {};
+      }
+
+      final response = jsonDecode(res.body);
+
+      if (response["success"] != true) {
+        return {};
+      }
+
+      return parseSensors(response["data"]);
+    } catch (e) {
+      debugPrint("Error fethcing sensors: $e");
+      return {};
     }
   }
 }

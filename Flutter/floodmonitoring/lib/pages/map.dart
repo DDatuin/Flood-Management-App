@@ -44,7 +44,8 @@ class _MapScreenState extends State<MapScreen> {
   late GoogleMapController mapController;
 
   final ThresholdService _thresholdService = ThresholdService();
-  final SensorService _sensorService = SensorService();
+  final SensorService _sensorService = SensorService.instance;
+  late StreamSubscription<void> _sensorUpdates;
 
   final LatLng _center = const LatLng(14.600775714641369, 121.00852660400322);
 
@@ -166,6 +167,20 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+
+    //establish a listener
+    _sensorUpdates = _sensorService.stream.listen((_) {
+      debugPrint("Event Signal Received");
+      _receivedInitialData = true;
+      _fallbackTimer?.cancel();
+
+      if (!mounted) return;
+
+      setState(() {
+        _rebuildSensorMarkers();
+      });
+    });
+
     _bootstrap();
   }
 
@@ -177,19 +192,22 @@ class _MapScreenState extends State<MapScreen> {
     if (pos == null) return;
 
     await _initializeEverything();
-
     startLocationUpdates();
   }
 
   @override
   void dispose() {
-    _carouselTimer?.cancel();
-    _carouselController.dispose();
+    _sensorUpdates.cancel();
+    _fallbackTimer?.cancel();
 
     _sensorService.disconnect();
+    _sensorService.dispose();
 
+    _carouselTimer?.cancel();
+    _carouselController.dispose();
     _positionStream?.cancel();
     _timer?.cancel();
+
     super.dispose();
   }
 
@@ -202,6 +220,7 @@ class _MapScreenState extends State<MapScreen> {
 
   /// ----- Connect to SSE Stream -----
   void _connectSSE() {
+    _receivedInitialData = false;
     _sensorService.connect(
       onConnected: () {
         debugPrint("Connected to sensor stream.");
@@ -210,30 +229,9 @@ class _MapScreenState extends State<MapScreen> {
           if (!_receivedInitialData) {
             debugPrint("SSE Empty, loading initial data using API call...");
 
-            final sensorData = await _sensorService.loadSensorsFromAPI();
-
-            setState(() {
-              sensors = sensorData;
-            });
-
-            _rebuildSensorMarkers();
+            await _sensorService.loadInitialSensors();
           }
         });
-      },
-      onData: (event) {
-        debugPrint("Event Signal Received: ${event.toString()}");
-        _receivedInitialData = true;
-        _fallbackTimer?.cancel();
-
-        final updates = _sensorService.parseSensors(event["data"]);
-
-        setState(() {
-          updates.forEach((sensorId, parsedSensor) {
-            sensors[sensorId] = parsedSensor;
-          });
-        });
-
-        _rebuildSensorMarkers();
       },
       onError: (e) {
         debugPrint(e.toString());
@@ -243,12 +241,12 @@ class _MapScreenState extends State<MapScreen> {
 
   /// ----- Initialize Everything -----
   Future<void> _initializeEverything() async {
-    _loadThresholds();
+    await _loadThresholds();
     await _loadIconPaths();
-    _connectSSE();
     await _loadMarkerIcon();
     await _loadCurrentLocation();
 
+    _connectSSE();
     if (mounted) {
       _addUserMarker();
 
@@ -284,12 +282,16 @@ class _MapScreenState extends State<MapScreen> {
   /// ----- START CAROUSEL TIMER -----
   void _startCarouselTimer() {
     _carouselTimer?.cancel();
+
     _carouselTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       if (!mounted) return;
 
+      if (!_carouselController.hasClients) return;
+
       int nextPage = currentMenuCardPage + 1;
+
       if (nextPage >= _carouselCardCount) {
-        nextPage = 0; // Loop back to the first card
+        nextPage = 0;
       }
 
       _carouselController.animateToPage(
@@ -308,7 +310,7 @@ class _MapScreenState extends State<MapScreen> {
       // Basic visibility toggle
       if (!showAllSensors && !showCriticalSensors) return;
 
-      sensors.forEach((id, sensor) {
+      _sensorService.sensors.forEach((id, sensor) {
         _circles.removeWhere((c) => c.circleId.value == '${id}_circle');
 
         final String status =
@@ -620,7 +622,7 @@ class _MapScreenState extends State<MapScreen> {
 
     Set<Marker> newMarkers = {};
 
-    sensors.forEach((id, sensor) {
+    _sensorService.sensors.forEach((id, sensor) {
       newMarkers.add(
         Marker(
           markerId: MarkerId(id),
@@ -1082,7 +1084,7 @@ class _MapScreenState extends State<MapScreen> {
   List<Map<String, dynamic>> buildAvoidZonesFromSensors() {
     List<Map<String, dynamic>> zones = [];
 
-    sensors.forEach((sensorId, sensor) {
+    _sensorService.sensors.forEach((sensorId, sensor) {
       final sensorData = sensor['sensorData'];
       final status = sensorData?['forecastedStatus'];
 
@@ -1384,7 +1386,7 @@ class _MapScreenState extends State<MapScreen> {
           "Please select a vehicle to continue",
           style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
         ),
-        color: Colors.white, // background white
+        color: Colors.white,
       ),
       autoDismiss: true,
       snackbarDuration: Durations.extralong4,
@@ -1501,7 +1503,6 @@ class _MapScreenState extends State<MapScreen> {
                   tileSize: 256,
                 ),
             },
-            //minMaxZoomPreference: const MinMaxZoomPreference(13.0, 18.0),
           ),
 
           ///Side Buttons
@@ -1888,8 +1889,9 @@ class _MapScreenState extends State<MapScreen> {
                 setState(() {
                   sensorSettingsDragOffset -= details.delta.dy;
 
-                  if (sensorSettingsDragOffset > 0)
+                  if (sensorSettingsDragOffset > 0) {
                     sensorSettingsDragOffset = 0;
+                  }
                   if (sensorSettingsDragOffset < -sensorSettingsSheetHeight) {
                     sensorSettingsDragOffset = -sensorSettingsSheetHeight;
                   }
@@ -2006,7 +2008,7 @@ class _MapScreenState extends State<MapScreen> {
                             description: 'Display all sensors on the map',
                             value: showAllSensors,
                             onChanged: (val) {
-                              print("Sensor Display has been toggled");
+                              debugPrint("Sensor Display has been toggled");
 
                               setState(() {
                                 showAllSensors = val;
@@ -2021,7 +2023,9 @@ class _MapScreenState extends State<MapScreen> {
                             description: 'Display sensor coverage area',
                             value: showSensorCoverage,
                             onChanged: (val) {
-                              print("Sensor Range Display has been toggled");
+                              debugPrint(
+                                "Sensor Range Display has been toggled",
+                              );
                               setState(() {
                                 showSensorCoverage = val;
                               });
@@ -2034,7 +2038,9 @@ class _MapScreenState extends State<MapScreen> {
                             description: 'Show only sensors with alerts',
                             value: showCriticalSensors,
                             onChanged: (val) {
-                              print("Critical Sensor Display has been toggled");
+                              debugPrint(
+                                "Critical Sensor Display has been toggled",
+                              );
 
                               setState(() {
                                 showCriticalSensors = val;
@@ -2119,7 +2125,7 @@ class _MapScreenState extends State<MapScreen> {
                       });
 
                       final sensor = selectedSensorId != null
-                          ? sensors[selectedSensorId]!
+                          ? _sensorService.sensors[selectedSensorId]!
                           : null;
                       final data = sensor?['sensorData'];
                       final location = sensor?['location'];
@@ -2197,10 +2203,7 @@ class _MapScreenState extends State<MapScreen> {
                             child: Column(
                               children: [
                                 _infoRow("Sensor ID", selectedSensorId ?? "-"),
-                                _infoRow(
-                                  "Location",
-                                  location == null ? 'Loading...' : location,
-                                ),
+                                _infoRow("Location", location ?? 'Loading...'),
                                 _infoRow(
                                   "Flood Height",
                                   data?['floodHeight'] != null
@@ -3022,6 +3025,8 @@ class _MapScreenState extends State<MapScreen> {
                                                     showDirectionSheet = true;
                                                     vehicleConfirmed = true;
                                                     _goToUser();
+                                                    _sensorService
+                                                        .refreshStatuses();
                                                     _rebuildSensorMarkers();
                                                   });
                                                 },
@@ -3057,6 +3062,8 @@ class _MapScreenState extends State<MapScreen> {
                                                     showDirectionSheet = true;
                                                     vehicleConfirmed = true;
                                                     _goToUser();
+                                                    _sensorService
+                                                        .refreshStatuses();
                                                     _rebuildSensorMarkers();
                                                   });
                                                 },
@@ -3094,6 +3101,8 @@ class _MapScreenState extends State<MapScreen> {
                                                     showDirectionSheet = true;
                                                     vehicleConfirmed = true;
                                                     _goToUser();
+                                                    _sensorService
+                                                        .refreshStatuses();
                                                     _rebuildSensorMarkers();
                                                   });
                                                 },
@@ -3128,6 +3137,8 @@ class _MapScreenState extends State<MapScreen> {
                                                     showDirectionSheet = true;
                                                     vehicleConfirmed = true;
                                                     _goToUser();
+                                                    _sensorService
+                                                        .refreshStatuses();
                                                     _rebuildSensorMarkers();
                                                   });
                                                 },
@@ -3162,6 +3173,8 @@ class _MapScreenState extends State<MapScreen> {
                                                     showDirectionSheet = true;
                                                     vehicleConfirmed = true;
                                                     _goToUser();
+                                                    _sensorService
+                                                        .refreshStatuses();
                                                     _rebuildSensorMarkers();
                                                   });
                                                 },
@@ -3461,11 +3474,9 @@ class _MapScreenState extends State<MapScreen> {
                                                               16,
                                                               14,
                                                             ),
-                                                        // 👇 Wrap with SingleChildScrollView inside the card
-                                                        // to prevent yellow/black strip overflows if content spikes!
                                                         child: SingleChildScrollView(
                                                           physics:
-                                                              const NeverScrollableScrollPhysics(), // Keeps it clean unless overflowing
+                                                              const NeverScrollableScrollPhysics(),
                                                           child: Center(
                                                             child:
                                                                 buildCardContent(
@@ -3482,7 +3493,6 @@ class _MapScreenState extends State<MapScreen> {
 
                                             const SizedBox(height: 12),
 
-                                            /// 2. Centered Pagination Capsule
                                             Container(
                                               padding:
                                                   const EdgeInsets.symmetric(

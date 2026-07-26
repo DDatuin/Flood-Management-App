@@ -38,33 +38,6 @@ final List<Map<String, dynamic>> floodStatuses = [
   },
 ];
 
-Map<String, Map<String, dynamic>> sensors = {
-  "SENS_001": {
-    //Near basketball Court
-    "position": const LatLng(14.6000103311735, 121.00910391615),
-    "token": "rDsIi--IkEDcdOVLSBXh2DvfusmwPSFc",
-    "pin": "V0",
-    "radius": 100.0,
-
-    /// Meters
-    "height": 100.00,
-
-    /// cm
-    "location": "No Location",
-    "sensorData": {
-      "distance": 0.0,
-      "floodHeight": 0.0,
-      "status": "Loading...",
-      "lastUpdate": "00:00 AM",
-    },
-    "weatherData": {
-      "temperature": 0.0,
-      "description": "Loading...",
-      "pressure": 0,
-    },
-  },
-};
-
 /// Link: https://interaksyon.philstar.com/trends-spotlights/2024/09/04/282826/mmda-flood-gauge-system-travelers-motorists/amp/
 /// Link: https://www.carmudi.com.ph/journal/5-tips-gauge-safe-drive-flood/
 List<Map<String, dynamic>> vehicleFloodThresholds = [

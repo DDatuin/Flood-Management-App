@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:floodmonitoring/services/api_configs.dart';
+import 'package:floodmonitoring/services/sensor_service.dart';
 import 'package:floodmonitoring/services/weather.dart';
 import 'package:floodmonitoring/utils/converters.dart';
 import 'package:floodmonitoring/utils/style.dart';
 import 'package:flutter/material.dart';
-import 'package:floodmonitoring/services/flood_level.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
 import '../services/global.dart';
@@ -22,6 +22,8 @@ class _InfoState extends State<Info> {
   // STATE / VARIABLES
   // ========================================
   Timer? _timer;
+  final SensorService _sensorService = SensorService.instance;
+  late StreamSubscription<void> _sensorUpdates;
 
   List<FlSpot> hourlyData = [];
   List<String> labels = ["", "", ""];
@@ -33,14 +35,13 @@ class _InfoState extends State<Info> {
   @override
   void initState() {
     super.initState();
-    // fetchDataForSensor(sensorViewInfo);
-    getWeather(sensorViewInfo);
-    loadSensorHistoryView(sensorViewInfo);
 
-    // _timer = Timer.periodic(
-    //   const Duration(minutes: 1),
-    //   (_) => fetchDataForSensor(sensorViewInfo),
-    // );
+    _sensorUpdates = _sensorService.stream.listen((_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+
+    loadSensorHistoryView(sensorViewInfo);
   }
 
   @override
@@ -52,36 +53,6 @@ class _InfoState extends State<Info> {
   // ========================================
   // LOGIC / HELPER FUNCTIONS
   // ========================================
-
-  // /// ----- FETCH DATA FOR SENSOR -----
-  // Future<void> fetchDataForSensor(String sensorId) async {
-  //   final data = await FloodLevel.fetchLatestSensorData(sensorId);
-
-  //   setState(() {
-  //     sensors[sensorId]!['sensorData'] = data;
-  //   });
-  // }
-
-  /// ----- GET WEATHER -----
-  Future<void> getWeather(String sensorId) async {
-    final sensor = sensors[sensorId];
-    if (sensor == null) return;
-
-    final weather = await loadWeather(
-      sensor['position'].latitude,
-      sensor['position'].longitude,
-    );
-
-    if (weather != null) {
-      setState(() {
-        sensor['weatherData'] = {
-          "temperature": weather['temperature'],
-          "description": weather['description'],
-          "pressure": weather['pressure'],
-        };
-      });
-    }
-  }
 
   /// ----- LOAD SENSOR HISTORY VIEW -----
   Future<void> loadSensorHistoryView(String sensorId) async {
@@ -190,7 +161,7 @@ class _InfoState extends State<Info> {
 
   /// ----- HEADER -----
   Widget _header() {
-    final sensor = sensors[sensorViewInfo]!;
+    final sensor = _sensorService.sensors[sensorViewInfo]!;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -262,7 +233,7 @@ class _InfoState extends State<Info> {
 
   /// ----- LIVE MEASUREMENTS -----
   Widget _liveMeasurements() {
-    final sensor = sensors[sensorViewInfo]!;
+    final sensor = _sensorService.sensors[sensorViewInfo]!;
     return _card(
       title: "Live Measurements",
       child: Column(
@@ -302,7 +273,7 @@ class _InfoState extends State<Info> {
 
   /// ----- SENSOR DETAILS -----
   Widget _sensorDetails() {
-    final sensor = sensors[sensorViewInfo]!;
+    final sensor = _sensorService.sensors[sensorViewInfo]!;
 
     return _card(
       title: "Sensor Details",
@@ -324,7 +295,7 @@ class _InfoState extends State<Info> {
 
   /// ----- WEATHER SECTION -----
   Widget _weatherSection() {
-    final weather = sensors[sensorViewInfo]!['weatherData'];
+    final weather = _sensorService.sensors[sensorViewInfo]!['weatherData'];
     return _card(
       title: "Weather",
       child: Column(
