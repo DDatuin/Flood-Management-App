@@ -133,45 +133,6 @@ def get_latest_data_from_supabase():
         print(f"Type: {type(e).__name__}")
         print(f"Message: {str(e)}")
 
-def get_latest_sensor_wl_data_from_supabase(sensor_id):
-    try:
-        sensor_response = (
-            supabase.table("SENSOR_AND_API_DATA")
-            .select("id, sensor_id, timestamp, wlvl_now, flood_cat_now")
-            .eq("sensor_id", sensor_id)
-            .order("timestamp", desc=True)
-            .limit(1)
-            .execute()
-        )
-
-        rows = sensor_response.data or []
-        if not rows:
-            return None
-
-        row = rows[0]
-        row_id = row.get("id")
-
-        prediction_response = (
-            supabase.table("PREDICTIONS")
-            .select("forecast, forecast_category")
-            .eq("data_id", row_id)
-            .limit(1)
-            .execute()
-        )
-
-        prediction = (prediction_response.data or [{}])[0] if prediction_response.data else {}
-
-        return {
-            **row,
-            "prediction": prediction
-        }
-
-    except Exception as e:
-        print("[SUPABASE ERROR]")
-        print(type(e).__name__)
-        print(str(e))
-        return None
-
 def get_sensor_history_from_supabase(sensor_id):
 
     try:

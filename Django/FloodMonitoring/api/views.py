@@ -8,11 +8,8 @@ from api.utils import api_response, build_avoid_polygons, format_latest_sensor_d
 from api.util.data_collector import run_data_collection_cycle
 from .supabase.utils import (
     get_emergency_contacts_from_supabase, 
-    get_latest_data_from_supabase, 
-    get_latest_sensor_wl_data_from_supabase, 
     get_sensor_details_from_supabase, 
-    get_sensor_history_from_supabase, 
-    get_specific_sensor_details_from_supabase, 
+    get_sensor_history_from_supabase,
     get_vehicle_thresholds_from_supabase, 
     get_web_chart_data_from_supabase
 )
@@ -58,49 +55,6 @@ def get_latest_data(request):
     return api_response(
         success=True,
         data= result,
-        message="Latest Sensor Data Retrieved"
-    )
-
-@api_view(['GET'])
-def get_latest_specific_sensor_water_level_data(request):
-    """
-    REQUEST:
-    /api/latest-specific?id=<sensor_id>
-    """
-
-    sensor_id = request.GET.get("id")
-
-    if not sensor_id:
-        return api_response(
-            success=False,
-            data=None,
-            message="Missing sensor_id",
-            status=400
-        )
-
-    data = get_latest_sensor_wl_data_from_supabase(sensor_id)
-
-    if not data:
-        return api_response(
-            success=False,
-            data=None,
-            message="No data found for sensor",
-            status=404
-        )
-
-    prediction = data.get("prediction") or {}
-
-    result = {
-        "wlvl_now": data.get("wlvl_now"),
-        "flood_cat_now": data.get("flood_cat_now"),
-        "forecast": prediction.get("forecast"),
-        "flood_cat": prediction.get("forecast_category"),
-        "lastUpdate": data.get("timestamp"),
-    }
-
-    return api_response(
-        success=True,
-        data=result,
         message="Latest Sensor Data Retrieved"
     )
 

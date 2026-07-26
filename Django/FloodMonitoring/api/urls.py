@@ -1,16 +1,15 @@
 from django.urls import path
 
 from .sse import sensor_stream
-from .views import get_emergency_contacts, get_latest_data, get_place_details, get_safe_route, get_sensor_history, get_user_weather_info, get_vehicle_thresholds, get_web_chart_history, get_latest_specific_sensor_water_level_data, run_data_collector, search_places
+from .views import get_emergency_contacts, get_latest_data, get_place_details, get_safe_route, get_sensor_history, get_user_weather_info, get_vehicle_thresholds, get_web_chart_history, run_data_collector, search_places
 
 urlpatterns = [
     #SSE API Endpoints
     path('stream/sensors-channel/', sensor_stream),
 
     #Standard API Endpointss
-    path('latest-data/', get_latest_data), #will become obsolete for SSE
-    path('latest-specific/', get_latest_specific_sensor_water_level_data), #will become obsolete for SSE
-    path('history/', get_sensor_history), #will become obsolete for SSE
+    path('latest-data/', get_latest_data), 
+    path('history/', get_sensor_history), 
     path('web-history/', get_web_chart_history),
     path('route/', get_safe_route),
     path('vehicle-thresholds/', get_vehicle_thresholds),
