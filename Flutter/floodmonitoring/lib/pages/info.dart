@@ -46,6 +46,7 @@ class _InfoState extends State<Info> {
 
   @override
   void dispose() {
+    _sensorUpdates.cancel();
     _timer?.cancel();
     super.dispose();
   }
@@ -286,7 +287,10 @@ class _InfoState extends State<Info> {
                 : sensor['location'].toString(),
           ),
           _item("Monitoring Radius", "${sensor['radius']} m"),
-          _item("Monitoring Height", "${sensor['height'] / 100} m"),
+          _item(
+            "Monitoring Height",
+            "${((sensor['height'] as num).toDouble() / 100).toStringAsFixed(2)} m",
+          ),
           _item("Connection", "Online"),
         ],
       ),

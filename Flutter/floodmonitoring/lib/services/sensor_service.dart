@@ -12,6 +12,7 @@ class SensorService {
   Stream<void> get stream => _sensorStreamController.stream;
 
   bool _connected = false;
+  bool get isConnected => _connected;
   StreamSubscription<String>? _subscription;
 
   SensorService._();
@@ -23,6 +24,8 @@ class SensorService {
     Function()? onConnected,
     Function(dynamic error)? onError,
   }) async {
+    debugPrint("CONNECT() CALLED");
+
     if (_connected) return;
     final request = http.Request("GET", Uri.parse(ApiConfig.sensorStream));
     final response = await request.send();
@@ -51,7 +54,15 @@ class SensorService {
               _sensorStreamController.add(null);
             }
           },
-          onError: onError,
+          onError: (exception) {
+            debugPrint("SSE Error: $exception");
+            _connected = false;
+            onError?.call(exception);
+          },
+          onDone: () {
+            debugPrint("SSE Closed");
+            _connected = false;
+          },
           cancelOnError: false,
         );
   }

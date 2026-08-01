@@ -36,7 +36,7 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   // ========================================
   // STATE / VARIABLES
   // ========================================
@@ -167,6 +167,7 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     //establish a listener
     _sensorUpdates = _sensorService.stream.listen((_) {
@@ -197,6 +198,8 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+
     _sensorUpdates.cancel();
     _fallbackTimer?.cancel();
 
@@ -209,6 +212,15 @@ class _MapScreenState extends State<MapScreen> {
     _timer?.cancel();
 
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    debugPrint("Lifecycle: $state");
+
+    if (state == AppLifecycleState.resumed) {
+      _resumeConnections();
+    }
   }
 
   // ========================================
@@ -237,6 +249,13 @@ class _MapScreenState extends State<MapScreen> {
         debugPrint(e.toString());
       },
     );
+  }
+
+  void _resumeConnections() {
+    //this is the function to be call when Lifecycle is paused and needs to be resumed, some built-in listeners do not need to be manually reconnected, custom listeners should be called here
+    if (!_sensorService.isConnected) {
+      _connectSSE();
+    }
   }
 
   /// ----- Initialize Everything -----
