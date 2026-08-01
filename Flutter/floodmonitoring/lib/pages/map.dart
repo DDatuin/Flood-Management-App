@@ -1227,8 +1227,6 @@ class _MapScreenState extends State<MapScreen> {
           "location": selectedLocationPosition,
         };
 
-        route = [];
-
         showPinConfirmationSheet = true;
         showDirectionSheet = false;
         showSensorSheet = false;
@@ -1363,6 +1361,7 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     if (start != null) {
+      route = [];
       _drawRoute(start, destination);
       LatLngBounds bounds = LatLngBounds(
         southwest: LatLng(
@@ -1448,8 +1447,7 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      resizeToAvoidBottomInset:
-          false, // 🚫 Prevents map/buttons from shifting up
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           /// Map Background
@@ -2410,13 +2408,12 @@ class _MapScreenState extends State<MapScreen> {
                                 child: secondaryButton(
                                   text: "CANCEL",
                                   onTap: () {
-                                    cancelPinSelection();
-                                    _goToUser();
                                     setState(() {
                                       route = [];
-                                      _polylines.clear();
                                       showPinConfirmationSheet = false;
                                     });
+                                    cancelPinSelection();
+                                    _goToUser();
                                   },
                                 ),
                               ),
