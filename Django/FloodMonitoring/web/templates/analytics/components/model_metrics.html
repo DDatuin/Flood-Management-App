@@ -1,0 +1,126 @@
+<div class="analytics-card">
+
+    <div class="analytics-card-header">
+
+        <div>
+            <h2 class="analytics-title">MODEL METRICS</h2>
+
+            <p class="analytics-subtitle">
+                Performance evaluation of the flood forecasting model.
+            </p>
+        </div>
+
+        <div class="analytics-tabs">
+
+            <button
+                id="regression-tab"
+                class="analytics-tab analytics-tab-active">
+
+                Regression
+
+            </button>
+
+            <button
+                id="classification-tab"
+                class="analytics-tab">
+
+                Classification
+
+            </button>
+
+        </div>
+
+    </div>
+
+    <div class="analytics-card-body">
+
+        <div id="regression-panel" class="analytics-panel active">
+
+            <div class="metrics-summary">
+
+                <div class="metric-card">
+                    <span class="metric-label">RMSE</span>
+                    <span class="metric-value">0.124</span>
+                </div>
+
+                <div class="metric-card">
+                    <span class="metric-label">MAE</span>
+                    <span class="metric-value">0.083</span>
+                </div>
+
+                <div class="metric-card">
+                    <span class="metric-label">MSE</span>
+                    <span class="metric-value">0.015</span>
+                </div>
+
+                <div class="metric-card">
+                    <span class="metric-label">R² Score</span>
+                    <span class="metric-value">0.972</span>
+                </div>
+
+            </div>
+
+            <div class="metrics-chart">
+
+                <canvas id="regression-chart"></canvas>
+
+            </div>
+
+        </div>
+
+        <div id="classification-panel" class="analytics-panel">
+
+            <div class="metrics-toolbar">
+
+                <label class="analytics-dropdown-label">
+                    Classification Type
+                </label>
+
+                <select class="analytics-dropdown">
+
+                    <option>MMDA Flood Category</option>
+                    <option>Pedestrian</option>
+                    <option>Bicycle</option>
+                    <option>Motorcycle</option>
+                    <option>Car</option>
+                    <option>Truck</option>
+
+                </select>
+
+            </div>
+
+            <div class="metrics-summary">
+
+                <div class="metric-card">
+                    <span class="metric-label">Accuracy</span>
+                    <span class="metric-value">97.1%</span>
+                </div>
+
+                <div class="metric-card">
+                    <span class="metric-label">Precision</span>
+                    <span class="metric-value">96.5%</span>
+                </div>
+
+                <div class="metric-card">
+                    <span class="metric-label">Recall</span>
+                    <span class="metric-value">96.9%</span>
+                </div>
+
+                <div class="metric-card">
+                    <span class="metric-label">F1 Score</span>
+                    <span class="metric-value">96.7%</span>
+                </div>
+
+            </div>
+
+            <div class="metrics-chart">
+
+                <canvas id="confusion-matrix"></canvas>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>

@@ -1,0 +1,59 @@
+<div class="analytics-card">
+    <div class="analytics-card-header">
+
+        <div>
+
+            <h2 class="analytics-title">
+                FLOOD ASSESSMENT
+            </h2>
+
+            <p class="analytics-subtitle">
+                Current sensor reading and five-minute forecast.
+            </p>
+
+        </div>
+
+        <div class="analytics-tabs">
+
+            <button
+                id="current-tab"
+                class="analytics-tab analytics-tab-active">
+
+                Current
+
+            </button>
+
+            <button
+                id="forecast-tab"
+                class="analytics-tab">
+
+                Forecast
+
+            </button>
+
+        </div>
+
+    </div>
+
+    <div class="analytics-card-body">
+
+        <!-- Current -->
+
+        <div id="current-panel" class="analytics-panel active">
+
+            {% include "analytics/components/model_forecast/assessment_card.html" with label="Current Water Level" height="87.4" mmda_class="nplv" mmda_text="Not Passable to Light Vehicles (NPLV)" %}
+            {% include "analytics/components/model_forecast/vehicle_status_list.html" %}
+
+        </div>
+
+        <!-- Forecast -->
+
+        <div id="forecast-panel" class="analytics-panel">
+
+            {% include "analytics/components/model_forecast/assessment_card.html" with label="5-Minute Forecast" height="91.2" mmda_class="patv" mmda_text="Passable to All Types of Vehicles (PATV)" %}
+            {% include "analytics/components/model_forecast/vehicle_status_list.html" %}
+
+        </div>
+
+    </div>
+</div>

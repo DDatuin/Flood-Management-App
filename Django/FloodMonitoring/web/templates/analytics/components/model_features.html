@@ -1,0 +1,139 @@
+<div class="analytics-card">
+
+    <div class="analytics-card-header">
+        <div>
+            <h2 class="analytics-title">MODEL FEATURES</h2>
+            <p class="analytics-subtitle">
+                Current & past water level readings, water level statistics, and cumulative rainfall readings in different timespans. Time interval is every 5 minutes.
+            </p>
+        </div>
+    </div>
+
+    <div class="analytics-card-body model-features-body">
+
+        <div class="feature-table-section">
+            <h3 class="feature-table-title">
+                Water Level Readings
+            </h3>
+
+            <table class="feature-table">
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>Reading</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    <tr class="current-feature">
+                        <td>Current Water Level</td>
+                        <td><strong id="wlvl-now">254.7 cm</strong></td>
+                        <td>Now</td>
+                    </tr>
+
+                    <tr>
+                        <td>Water Level Lag 1</td>
+                        <td id="wlvl-lag-1">240.2 cm</td>
+                        <td>5 minutes ago</td>
+                    </tr>
+
+                    <tr>
+                        <td>Water Level Lag 2</td>
+                        <td id="wlvl-lag-2">225.8 cm</td>
+                        <td>10 minutes ago</td>
+                    </tr>
+
+                    <tr>
+                        <td>Water Level Lag 5</td>
+                        <td id="wlvl-lag-5">190.4 cm</td>
+                        <td>25 minutes ago</td>
+                    </tr>
+
+                    <tr>
+                        <td>Water Level Lag 10</td>
+                        <td id="wlvl-lag-10">144.2 cm</td>
+                        <td>50 minutes ago</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="feature-table-section">
+            <h3 class="feature-table-title">
+                Water Level Statistics
+            </h3>    
+            
+            <table class="feature-table">
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                    <tr>
+                        <td>Height Difference From Previous Reading</td>
+                        <td id="diff-lag-1">0 cm</td>
+                    </tr>
+
+                    <tr>
+                        <td>Percentage of Difference</td>
+                        <td id="pct-change-lag-1">0%</td>
+                    </tr>
+
+                    <tr>
+                        <td>Slope of Trend</td>
+                        <td id="slope-lag-t-10">0</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="feature-table-section">
+            <h3 class="feature-table-title">
+                Cumulative Rainfall Readings
+            </h3>
+
+            <table class="feature-table">
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>Reading</th>
+                        <th>Timespan</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    <tr class="current-feature">
+                        <td>1hr Rainfall</td>
+                        <td><strong id="rainfall-hr1">0.16 mm</strong></td>
+                        <td>Past hour</td>
+                    </tr>
+
+                    <tr>
+                        <td>2hr Rainfall</td>
+                        <td id="rainfall-hr2">0.16 mm</td>
+                        <td>Past 2 hours</td>
+                    </tr>
+
+                    <tr>
+                        <td>12hr Rainfall</td>
+                        <td id="rainfall-hr12">0.16 mm</td>
+                        <td>Past 12 hours</td>
+                    </tr>
+
+                    <tr>
+                        <td>24hr Rainfall</td>
+                        <td id="rainfall-hr24">0.16 mm</td>
+                        <td>Past 24 hours</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+
+</div>

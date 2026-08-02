@@ -1,6 +1,6 @@
 from django.shortcuts import render
 
-# Dashboard view with session check
+# Dashboard view
 def dashboard_view(request):
     
-    return render(request, 'web/dashboard.html')
+    return render(request, "analytics/dashboard.html")

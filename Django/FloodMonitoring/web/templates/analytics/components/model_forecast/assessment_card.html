@@ -1,0 +1,38 @@
+<div class="assessment-tooltip">
+
+    <div class="assessment-card {{ mmda_class }}">
+
+        <svg
+            class="assessment-bg-icon"
+            viewBox="0 0 24 24"
+            fill="currentColor">
+
+            <path d="M12 2C12 2 5 10 5 15.5C5 19.642 8.358 23 12.5 23C16.642 23 20 19.642 20 15.5C20 10 12 2 12 2Z"/>
+
+        </svg>
+
+        <div class="assessment-label">
+            {{ label }}
+        </div>
+
+        <div class="assessment-value">
+
+            <span>{{ height }}</span>
+
+            <span class="assessment-unit">
+                cm
+            </span>
+
+        </div>
+
+        <div class="assessment-mmda-category {{ mmda_class }}">
+
+            {{ mmda_text }}
+
+        </div>
+
+    </div>
+
+    {% include "analytics/components/model_forecast/tooltip_mmda.html" %}
+
+</div>

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}
+    FDW Analytics
+{% endblock %}
+
+{% block content %}
+
+<div class="space-y-6 pb-8">
+
+    {% include "analytics/components/overall_section.html" %}
+
+    <div class="analytics-section-divider"></div>
+
+    {% include "analytics/components/sensor_section_header.html" %}
+
+    <div class="grid grid-cols-5 gap-6 items-stretch">
+
+        <div class="col-span-3">
+            {% include "analytics/components/map.html" %}
+        </div>
+
+        <div class="col-span-2">
+            {% include "analytics/components/model_forecast.html" %}
+        </div>
+
+    </div>
+
+    {% include "analytics/components/model_features.html" %}
+
+    <div class="grid grid-cols-2 gap-6">
+
+        {% include "analytics/components/sensor_info.html" %}
+
+        {% include "analytics/components/weather_info.html" %}
+
+    </div>
+
+    {% include "analytics/components/model_metrics.html" %}
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+
+<script src="{% static 'analytics/javascript/dashboard/map.js' %}"></script>
+<script src="{% static 'analytics/javascript/dashboard/forecast.js' %}"></script>
+<script src="{% static 'analytics/javascript/dashboard/metrics.js' %}"></script>
+<script src="{% static 'analytics/javascript/dashboard/dashboard.js' %}"></script>
+
+{% endblock %}

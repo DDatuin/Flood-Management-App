@@ -1,0 +1,77 @@
+<div class="vehicle-status-list">
+
+    <h3 class="vehicle-status-title">
+        Vehicle-Specific Severity Statuses
+    </h3>
+
+    <div class="vehicle-status">
+        <span class="vehicle-name">
+            Pedestrian
+        </span>
+
+        <div class="vehicle-tooltip">
+            <span class="vehicle-badge safe">
+                Safe
+            </span>
+
+            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Pedestrian" safe="0–15 cm" warning="16–25 cm" danger="26+ cm" %}
+        </div>
+    </div>
+
+    <div class="vehicle-status">
+        <span class="vehicle-name">
+            Bicycle
+        </span>
+
+        <div class="vehicle-tooltip">
+            <span class="vehicle-badge safe">
+                Safe
+            </span>
+
+            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Bicycle" safe="0–15 cm" warning="16–25 cm" danger="26+ cm" %}
+        </div>
+    </div>
+
+    <div class="vehicle-status">
+        <span class="vehicle-name">
+            Motorcycle
+        </span>
+
+        <div class="vehicle-tooltip">
+            <span class="vehicle-badge warning">
+                Warning
+            </span>
+
+            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Motorcycle" safe="0–15 cm" warning="16–25 cm" danger="26+ cm" %}
+        </div>
+    </div>
+
+    <div class="vehicle-status">
+        <span class="vehicle-name">
+            Car
+        </span>
+
+        <div class="vehicle-tooltip">
+            <span class="vehicle-badge danger">
+                Danger
+            </span>
+
+            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Car" safe="0–15 cm" warning="16–25 cm" danger="26+ cm" %}
+        </div>
+    </div>
+
+    <div class="vehicle-status">
+        <span class="vehicle-name">
+            Truck
+        </span>
+
+        <div class="vehicle-tooltip">
+            <span class="vehicle-badge danger">
+                Danger
+            </span>
+
+            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Truck" safe="0–15 cm" warning="16–25 cm" danger="26+ cm" %}
+        </div>
+    </div>
+
+</div>

@@ -1,0 +1,52 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+        <title>{% block title %}BYFLO Dashboard{% endblock %}</title>
+
+        <!-- MapLibre -->
+         <link href="https://unpkg.com/maplibre-gl@5.7.0/dist/maplibre-gl.css" rel="stylesheet"/>
+
+        <!-- Tailwind -->
+        <script src="https://cdn.tailwindcss.com"></script>
+
+        <!-- Chart.js -->
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
+        <!-- Shared CSS -->
+        <link rel="stylesheet" href="{% static 'analytics/css/dashboard.css' %}">
+
+        {% block head %}{% endblock %}
+    </head>
+
+    <body class="bg-slate-100">
+
+        <!-- Navigation -->
+        <nav class="bg-white shadow mb-6">
+            <div class="max-w-7xl mx-auto px-6 py-4">
+                <h1 class="text-xl font-bold text-blue-600">
+                    BYFLO Analytics
+                </h1>
+            </div>
+        </nav>
+
+        <!-- Page Content -->
+        <main class="max-w-7xl mx-auto px-6">
+            {% block content %}
+            {% endblock %}
+        </main>
+
+        <!-- Shared JavaScript -->
+        <!-- <script src="{% static 'js/utils.js' %}"></script> -->
+
+        <script src="https://unpkg.com/maplibre-gl@5.7.0/dist/maplibre-gl.js"></script>
+        {% block scripts %}
+        {% endblock %}
+
+    </body>
+</html>
