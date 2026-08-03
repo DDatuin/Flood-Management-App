@@ -42,6 +42,7 @@ def evaluate_model_accuracy(new_data_batch):
         actual = dp["wlvl_now"]
 
         error = abs(prediction - actual)
+        sqr_error = error ** 2
 
         forecast_severity = get_severity(prediction)
         actual_severity = get_severity(actual)
@@ -54,6 +55,7 @@ def evaluate_model_accuracy(new_data_batch):
             #actual data to be logged in the Accuracy table
             "prediction_id": prediction_id, #prediction id here from previous timestep
             "abs_error": error, #error of prediction from actual water level
+            "sqr_error": sqr_error, #squared error of prediction from actual water level
             "pedestrian_severity_forecasted": forecast_severity["pedestrian"], #forecast flood height severity for pedestrians
             "pedestrian_severity_actual": actual_severity["pedestrian"], #actual flood height severity for pedestrians
             "bicycle_severity_forecasted": forecast_severity["bicycle"], #forecast flood height severity for bikes

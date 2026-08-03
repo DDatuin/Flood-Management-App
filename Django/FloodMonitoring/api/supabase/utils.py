@@ -88,6 +88,7 @@ def _log_ml_eval(row_data):
             "prediction_id": row_data["prediction_id"],
             "actual_id": row_data["actual_id"],
             "abs_error": row_data["abs_error"],
+            "sqr_error": row_data["sqr_error"],
             "pedestrian_severity_forecasted": row_data["pedestrian_severity_forecasted"],
             "pedestrian_severity_actual": row_data["pedestrian_severity_actual"],
             "bicycle_severity_forecasted": row_data["bicycle_severity_forecasted"], 
