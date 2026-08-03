@@ -22,6 +22,5 @@ async def sensor_stream(request):
     )
 
     response['Cache-Control'] = "no-cache"
-    response['Connection'] = "keep-alive"
 
     return response

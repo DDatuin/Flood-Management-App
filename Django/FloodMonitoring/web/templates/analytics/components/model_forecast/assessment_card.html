@@ -1,6 +1,7 @@
 <div class="assessment-tooltip">
 
-    <div class="assessment-card {{ mmda_class }}">
+    <div class="assessment-card {{ mmda_class }}"
+        id="{{ prefix }}-assessment-card">
 
         <svg
             class="assessment-bg-icon"
@@ -11,13 +12,19 @@
 
         </svg>
 
-        <div class="assessment-label">
+        <div
+            id="{{ prefix }}-assessment-label"
+            class="assessment-label">
+
             {{ label }}
+
         </div>
 
         <div class="assessment-value">
 
-            <span>{{ height }}</span>
+            <span id="{{ prefix }}-assessment-value">
+                {{ height }}
+            </span>
 
             <span class="assessment-unit">
                 cm
@@ -25,7 +32,9 @@
 
         </div>
 
-        <div class="assessment-mmda-category {{ mmda_class }}">
+        <div
+            id="{{ prefix }}-assessment-category"
+            class="assessment-mmda-category {{ mmda_class }}">
 
             {{ mmda_text }}
 

@@ -3,6 +3,9 @@ from api.supabase.utils import get_latest_logged_prediction_for_sensor_from_supa
 
 def get_severity(water_level):
 
+    if water_level is None:
+        return {}
+
     severity_ranges = get_vehicle_thresholds_from_supabase()
     severities = {}
 

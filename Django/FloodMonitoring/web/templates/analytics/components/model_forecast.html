@@ -41,8 +41,9 @@
 
         <div id="current-panel" class="analytics-panel active">
 
-            {% include "analytics/components/model_forecast/assessment_card.html" with label="Current Water Level" height="87.4" mmda_class="nplv" mmda_text="Not Passable to Light Vehicles (NPLV)" %}
-            {% include "analytics/components/model_forecast/vehicle_status_list.html" %}
+            {% include "analytics/components/model_forecast/assessment_card.html" with prefix="current" label="Current Water Level" height="87.4" mmda_class="nplv" mmda_text="Not Passable to Light Vehicles (NPLV)" %}
+
+            {% include "analytics/components/model_forecast/vehicle_status_list.html" with prefix="current" %}
 
         </div>
 
@@ -50,8 +51,9 @@
 
         <div id="forecast-panel" class="analytics-panel">
 
-            {% include "analytics/components/model_forecast/assessment_card.html" with label="5-Minute Forecast" height="91.2" mmda_class="patv" mmda_text="Passable to All Types of Vehicles (PATV)" %}
-            {% include "analytics/components/model_forecast/vehicle_status_list.html" %}
+            {% include "analytics/components/model_forecast/assessment_card.html" with prefix="forecast" label="5-Minute Forecast" height="91.2" mmda_class="patv" mmda_text="Passable to All Types of Vehicles (PATV)" %}
+
+            {% include "analytics/components/model_forecast/vehicle_status_list.html" with prefix="forecast" %}
 
         </div>
 

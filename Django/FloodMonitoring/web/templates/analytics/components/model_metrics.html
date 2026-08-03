@@ -42,7 +42,7 @@
                     Time Range
                 </label>
 
-                <select class="analytics-dropdown">
+                <select id="regression-range-dropdown" class="analytics-dropdown">
 
                     <option>Live Tail (1-hour Window)</option>
                     <option>Last Hour</option>
@@ -58,22 +58,17 @@
 
                 <div class="metric-card">
                     <span class="metric-label">RMSE</span>
-                    <span class="metric-value">0.124</span>
+                    <span id="rmse-val" class="metric-value">0.124</span>
                 </div>
 
                 <div class="metric-card">
                     <span class="metric-label">MAE</span>
-                    <span class="metric-value">0.083</span>
+                    <span id="mae-val" class="metric-value">0.083</span>
                 </div>
 
                 <div class="metric-card">
                     <span class="metric-label">MSE</span>
-                    <span class="metric-value">0.015</span>
-                </div>
-
-                <div class="metric-card">
-                    <span class="metric-label">R² Score</span>
-                    <span class="metric-value">0.972</span>
+                    <span id="mse-val" class="metric-value">0.015</span>
                 </div>
 
             </div>
@@ -94,7 +89,7 @@
                     Classification Type
                 </label>
 
-                <select class="analytics-dropdown">
+                <select id="classification-type-dropdown" class="analytics-dropdown">
 
                     <option>MMDA Flood Category</option>
                     <option>Pedestrian</option>

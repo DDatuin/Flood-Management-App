@@ -44,6 +44,29 @@ def push_blynk_data_to_supabase(forecast_data_batch, new_data_batch, model_accur
         evaluation_row["actual_id"] = actual_id
 
         _log_ml_eval(evaluation_row)
+
+def get_latest_overall_analytics_from_supabase():
+
+    try:
+
+        response = (
+            supabase
+            .rpc("get_overall_analytics")
+            .execute()
+        )
+
+        if not response.data:
+            return None
+
+        return response.data[0]
+
+    except Exception as e:
+
+        print("[SUPABASE] ERROR:")
+        print(type(e).__name__)
+        print(e)
+
+        return None
         
 
 def _log_sensor_and_api_data(row_data):

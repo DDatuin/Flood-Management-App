@@ -45,9 +45,12 @@
 
 {% block scripts %}
 
+<script src="{% static 'analytics/javascript/dashboard/overall.js' %}"></script>
 <script src="{% static 'analytics/javascript/dashboard/map.js' %}"></script>
 <script src="{% static 'analytics/javascript/dashboard/forecast.js' %}"></script>
 <script src="{% static 'analytics/javascript/dashboard/metrics.js' %}"></script>
+<script src="{% static 'analytics/javascript/dashboard/section_header.js' %}"></script>
 <script src="{% static 'analytics/javascript/dashboard/dashboard.js' %}"></script>
+<script src="{% static 'analytics/javascript/services/listener.js' %}"></script>
 
 {% endblock %}

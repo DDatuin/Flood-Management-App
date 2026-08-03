@@ -1,7 +1,8 @@
 from rest_framework.response import Response
 import math
 
-from api.supabase.utils import get_latest_data_from_supabase, get_specific_sensor_details_from_supabase
+from api.supabase.utils import get_latest_data_from_supabase, get_latest_overall_analytics_from_supabase, get_specific_sensor_details_from_supabase
+from api.util.helpers.evaluator import get_severity
 
 VEHICLE_PASSABLE = {
     "pedestrian": ["nf"],
@@ -15,7 +16,18 @@ def format_latest_sensor_data():
     
     latest_sensor_data = get_latest_data_from_supabase()
 
-    result = {}
+    latest_overall_analytics = get_latest_overall_analytics_from_supabase()
+
+    result = {
+        "overall": {
+            "total_sensors": latest_overall_analytics['total_sensors'],
+            "active_sensors": latest_overall_analytics['active_sensors'],
+            "offline_sensors": latest_overall_analytics['offline_sensors'],
+            "rmse": latest_overall_analytics['rmse'],
+            "mse": latest_overall_analytics['mse'],
+            "mae": latest_overall_analytics['mae']
+        }
+    }
 
     for row in latest_sensor_data:
         sensor_id = row["sensor_id"]
@@ -23,6 +35,9 @@ def format_latest_sensor_data():
         details = get_specific_sensor_details_from_supabase(sensor_id)
 
         prediction = row.get("prediction") or {}
+
+        current = get_severity(row.get("wlvl_now"))
+        forecast = get_severity(prediction.get("forecast"))
 
         result[sensor_id] = {
             #datapoint-specific details
@@ -33,6 +48,7 @@ def format_latest_sensor_data():
             "ground_distance": details['ground_distance'],
             "radius": details['radius'],
             "location_name": details['location_name'],
+            "availability": details['available?'],
 
             #flood-info-specific details
             "wlvl_now": row.get("wlvl_now"),
@@ -43,7 +59,11 @@ def format_latest_sensor_data():
             #weather-specific details
             "temperature": row.get("temperature"),
             "pressure": row.get("pressure"),
-            "description": row.get("description")
+            "description": row.get("description"),
+
+            #vehicle-specific flood categories
+            "current_severity": current,
+            "forecast_severity": forecast,
         }
 
     return result

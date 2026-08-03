@@ -19,6 +19,7 @@ class SensorEventBus:
             self.clients.remove(queue)
 
     async def publish(self, event):
+        print("[SSE] Publishing event")
         self._latest_payload = event
 
         for queue in self.clients:

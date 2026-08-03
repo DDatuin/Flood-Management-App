@@ -10,11 +10,13 @@
         </span>
 
         <div class="vehicle-tooltip">
-            <span class="vehicle-badge safe">
+            <span
+                id="{{ prefix }}-pedestrian-status"
+                class="vehicle-badge safe">
                 Safe
             </span>
 
-            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Pedestrian" safe="0–15 cm" warning="16–25 cm" danger="26+ cm" %}
+            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Pedestrian" safe="0–5.08 cm" warning="5.09–12.7 cm" danger="12.7+ cm" %}
         </div>
     </div>
 
@@ -24,11 +26,13 @@
         </span>
 
         <div class="vehicle-tooltip">
-            <span class="vehicle-badge safe">
+            <span
+                id="{{ prefix }}-bicycle-status"
+                class="vehicle-badge safe">
                 Safe
             </span>
 
-            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Bicycle" safe="0–15 cm" warning="16–25 cm" danger="26+ cm" %}
+            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Bicycle" safe="0–10.16 cm" warning="10.17–25.4 cm" danger="25.4+ cm" %}
         </div>
     </div>
 
@@ -38,11 +42,13 @@
         </span>
 
         <div class="vehicle-tooltip">
-            <span class="vehicle-badge warning">
+            <span
+                id="{{ prefix }}-motorcycle-status"
+                class="vehicle-badge warning">
                 Warning
             </span>
 
-            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Motorcycle" safe="0–15 cm" warning="16–25 cm" danger="26+ cm" %}
+            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Motorcycle" safe="0–20.32 cm" warning="20.33–33.02 cm" danger="33.02+ cm" %}
         </div>
     </div>
 
@@ -52,11 +58,13 @@
         </span>
 
         <div class="vehicle-tooltip">
-            <span class="vehicle-badge danger">
+            <span
+                id="{{ prefix }}-car-status"
+                class="vehicle-badge danger">
                 Danger
             </span>
 
-            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Car" safe="0–15 cm" warning="16–25 cm" danger="26+ cm" %}
+            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Car" safe="0–25.4 cm" warning="25.41–48.26 cm" danger="48.26+ cm" %}
         </div>
     </div>
 
@@ -66,11 +74,13 @@
         </span>
 
         <div class="vehicle-tooltip">
-            <span class="vehicle-badge danger">
+            <span
+                id="{{ prefix }}-truck-status"
+                class="vehicle-badge danger">
                 Danger
             </span>
 
-            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Truck" safe="0–15 cm" warning="16–25 cm" danger="26+ cm" %}
+            {% include "analytics/components/model_forecast/tooltip_vehicle.html" with vehicle="Truck" safe="0–48.26 cm" warning="48.27–66.04 cm" danger="66.04+ cm" %}
         </div>
     </div>
 
