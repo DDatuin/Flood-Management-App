@@ -37,7 +37,7 @@ void showNearFloodAlertToast(BuildContext context) {
         ),
       ),
       subtitle: const Text(
-        "Within 120–150 m of a flood zone.",
+        "Flood zone is currently in range.",
         style: TextStyle(
           fontFamily: "AvenirNext",
           fontSize: 13,

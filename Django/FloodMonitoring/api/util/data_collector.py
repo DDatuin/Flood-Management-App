@@ -2,6 +2,7 @@
 from api.util.helpers.blynk_listener import fetch_blynk_data
 from api.util.helpers.ingester import ingest_datapoints
 from api.util.helpers.model_predictor.predictor import predict_batch
+from api.util.helpers.evaluator import evaluate_model_accuracy
 from api.utils import format_latest_sensor_data
 
 from ..supabase.utils import push_blynk_data_to_supabase
@@ -20,8 +21,10 @@ def run_data_collection_cycle():
     new_data_batch = ingest_datapoints(batch)
 
     forecast_data_batch = predict_batch(new_data_batch)
+
+    model_accuracy_eval = evaluate_model_accuracy(new_data_batch)
     
-    push_blynk_data_to_supabase(forecast_data_batch, new_data_batch)
+    push_blynk_data_to_supabase(forecast_data_batch, new_data_batch, model_accuracy_eval)
 
     #could add another guard clause here
 

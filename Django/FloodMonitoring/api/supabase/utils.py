@@ -5,24 +5,46 @@ from .client import supabase
 
 PHT = timezone(timedelta(hours=8))
 
-def push_blynk_data_to_supabase(forecast_data_batch, new_data_batch):
+def push_blynk_data_to_supabase(forecast_data_batch, new_data_batch, model_accuracy_eval):
 
     sensor_map = {
         (row['sensor_id'], row['timestamp']): row
         for row in new_data_batch
     }
 
+    evaluation_map = {
+        (row["sensor_id"], row["timestamp"]): row
+        for row in model_accuracy_eval
+    }
+
     for prediction_row in forecast_data_batch:
 
-        key = (prediction_row['sensor_id'], prediction_row['timestamp'])
+        key = (
+            prediction_row["sensor_id"],
+            prediction_row["timestamp"]
+        )
+
         sensor_row = sensor_map.get(key)
 
-        if not sensor_row:
-            print(f"[SUPABASE] WARNING: Missing sensor row for {key}")
+        if sensor_row is None:
             continue
 
-        row_id = _log_sensor_and_api_data(sensor_row)
-        _log_ml_prediction(prediction_row, row_id)
+        actual_id = _log_sensor_and_api_data(sensor_row)
+
+        if actual_id is None:
+            continue
+
+        _log_ml_prediction(prediction_row, actual_id)
+
+        evaluation_row = evaluation_map.get(key)
+
+        if evaluation_row is None:
+            continue
+
+        evaluation_row["actual_id"] = actual_id
+
+        _log_ml_eval(evaluation_row)
+        
 
 def _log_sensor_and_api_data(row_data):
     try:
@@ -53,6 +75,34 @@ def _log_sensor_and_api_data(row_data):
         inserted_row = response.data[0]['id']
         return inserted_row
     
+    except Exception as e:
+        print("SUPABASE] ERROR:")
+        print(f"Type: {type(e).__name__}")
+        print(f"Message: {str(e)}")
+
+def _log_ml_eval(row_data):
+
+    try:
+        table = supabase.table('ACCURACY')
+        data = {
+            "prediction_id": row_data["prediction_id"],
+            "actual_id": row_data["actual_id"],
+            "abs_error": row_data["abs_error"],
+            "pedestrian_severity_forecasted": row_data["pedestrian_severity_forecasted"],
+            "pedestrian_severity_actual": row_data["pedestrian_severity_actual"],
+            "bicycle_severity_forecasted": row_data["bicycle_severity_forecasted"], 
+            "bicycle_severity_actual": row_data["bicycle_severity_actual"], 
+            "motor_severity_forecasted": row_data["motor_severity_forecasted"],
+            "motor_severity_actual": row_data["motor_severity_actual"],
+            "car_severity_forecasted": row_data["car_severity_forecasted"], 
+            "car_severity_actual": row_data["car_severity_actual"], 
+            "truck_severity_forecasted": row_data["truck_severity_forecasted"], 
+            "truck_severity_actual": row_data["truck_severity_actual"]
+        }
+        response = table.insert(data).execute()
+
+        return response.data
+
     except Exception as e:
         print("SUPABASE] ERROR:")
         print(f"Type: {type(e).__name__}")
@@ -132,6 +182,53 @@ def get_latest_data_from_supabase():
         print("SUPABASE] ERROR:")
         print(f"Type: {type(e).__name__}")
         print(f"Message: {str(e)}")
+
+def get_latest_logged_prediction_for_sensor_from_supabase(sensor_id):
+
+    try:
+
+        response = (
+            supabase.table("SENSOR_AND_API_DATA")
+            .select("""
+                id,
+                sensor_id,
+                timestamp,
+                PREDICTIONS(
+                    id,
+                    forecast,
+                    forecast_category
+                )
+            """)
+            .eq("sensor_id", sensor_id)
+            .order("timestamp", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        if not response.data:
+            return None
+
+        row = response.data[0]
+
+        if not row["PREDICTIONS"]:
+            return None
+
+        prediction = row["PREDICTIONS"][0]
+
+        return {
+            "id": prediction["id"],
+            "forecast": prediction["forecast"],
+            "forecast_category": prediction["forecast_category"],
+            "sensor_id": row["sensor_id"],
+            "timestamp": row["timestamp"]
+        }
+
+    except Exception as e:
+        print("[SUPABASE] ERROR:")
+        print(type(e).__name__)
+        print(e)
+
+        return None
 
 def get_sensor_history_from_supabase(sensor_id):
 
