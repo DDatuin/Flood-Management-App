@@ -10,14 +10,14 @@ def get_severity(water_level):
 
         vehicle = threshold["vehicle_type"].lower()
 
-        if threshold["safe_min"] <= water_level <= threshold["safe_max"]:
-            severity = "safe"
+        if water_level <= threshold["safe_max"]:
+            severity = "Safe"
 
-        elif threshold["warning_min"] <= water_level <= threshold["warning_max"]:
-            severity = "warning"
+        elif water_level <= threshold["warning_max"]:
+            severity = "Warning"
 
         else:
-            severity = "danger"
+            severity = "Danger"
 
         severities[vehicle] = severity
 
