@@ -5,8 +5,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
-        android:label="Byflo"
-        android:name="${applicationName}"
+        android:label="BYFLO"
+        android:name="BYFLO"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
