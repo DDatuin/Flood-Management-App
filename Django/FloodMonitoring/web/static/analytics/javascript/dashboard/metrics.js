@@ -1,3 +1,5 @@
+let regressionChart = null;
+
 function initializeMetricTabs() {
 
     console.log("Initializing metric tabs");
@@ -9,7 +11,6 @@ function initializeMetricTabs() {
     const classificationPanel = document.getElementById("classification-panel");
 
     initializeRegressionChart();
-    initializeConfusionMatrix();
 
     regressionTab.addEventListener("click", () => {
 
@@ -43,7 +44,7 @@ function initializeRegressionChart() {
 
     if (!ctx) return;
 
-    new Chart(ctx, {
+    regressionChart = new Chart(ctx, {
 
         type: "line",
 
@@ -130,79 +131,189 @@ function initializeRegressionChart() {
 
 }
 
-function initializeConfusionMatrix() {
+function updateMetrics(sensor) {
 
-    const ctx = document.getElementById("confusion-matrix");
+    if (!sensor || !sensor.metrics) return;
 
-    if (!ctx) return;
+    updateRegressionMetrics(sensor.metrics.regression);
 
-    new Chart(ctx, {
+    updateClassificationMetrics(
+        sensor.metrics.classification
+    );
 
-        type: "bar",
+}
 
-        data: {
+function updateRegressionMetrics(metrics) {
 
-            labels: [
-                "NF",
-                "PATV",
-                "NPLV",
-                "NPATV"
-            ],
+    if (!metrics?.summary) return;
 
-            datasets: [
+    document.getElementById("rmse-val").textContent =
+        Number(metrics.summary.rmse).toFixed(3);
 
-                {
-                    label: "Correct",
-                    data: [97,94,96,95],
-                    backgroundColor: "#22c55e"
-                },
+    document.getElementById("mae-val").textContent =
+        Number(metrics.summary.mae).toFixed(3);
 
-                {
-                    label: "Misclassified",
-                    data: [3,6,4,5],
-                    backgroundColor: "#ef4444"
-                }
+    document.getElementById("mse-val").textContent =
+        Number(metrics.summary.mse).toFixed(3);
 
-            ]
+    updateRegressionChart(metrics.history);
 
-        },
+}
 
-        options: {
+function updateRegressionChart(history) {
 
-            responsive: true,
-            maintainAspectRatio: false,
+    if (!regressionChart || !history) return;
 
-            plugins: {
+    regressionChart.data.labels =
+        history.map(item =>
+            new Date(item.timestamp).toLocaleTimeString("en-PH", {
+                hour: "2-digit",
+                minute: "2-digit"
+            })
+        );
 
-                legend: {
-                    position: "top"
-                }
+    regressionChart.data.datasets[0].data =
+        history.map(item => item.actual);
 
-            },
+    regressionChart.data.datasets[1].data =
+        history.map(item => item.predicted);
 
-            scales: {
+    regressionChart.data.datasets[2].data =
+        history.map(item => item.abs_error);
 
-                x: {
-                    stacked: true
-                },
+    regressionChart.update("none");
 
-                y: {
+}
 
-                    stacked: true,
+function updateClassificationMetrics(metrics) {
 
-                    max: 100,
+    if (!metrics) return;
 
-                    title: {
-                        display: true,
-                        text: "Predictions (%)"
-                    }
+    const type =
+        document.getElementById(
+            "classification-type-dropdown"
+        ).value;
 
-                }
+    const matrix = metrics[type];
 
-            }
+    updateConfusionMatrix(matrix);
 
-        }
+}
+
+function updateConfusionMatrix(matrix) {
+
+    const table = document.getElementById(
+        "confusion-matrix-table"
+    );
+
+    if (!table) return;
+
+    table.innerHTML = "";
+
+    if (!matrix || Object.keys(matrix).length === 0) {
+
+        table.innerHTML =
+            "<tr><td>No data available.</td></tr>";
+
+        return;
+
+    }
+
+    const classes = new Set();
+
+    Object.keys(matrix).forEach(actual => {
+
+        classes.add(actual);
+
+        Object.keys(matrix[actual]).forEach(predicted => {
+            classes.add(predicted);
+        });
 
     });
 
+    const desiredOrder = [
+        "NF",
+        "PATV",
+        "NPLV",
+        "NPATV",
+        "Safe",
+        "Warning",
+        "Danger"
+    ];
+
+    const labels = desiredOrder.filter(label =>
+        classes.has(label)
+    );
+
+    // ---------- Header ----------
+
+    const thead = document.createElement("thead");
+
+    const headerRow = document.createElement("tr");
+
+    headerRow.innerHTML =
+        `<th>Actual \\ Predicted</th>`;
+
+    labels.forEach(label => {
+
+        const th = document.createElement("th");
+        th.textContent = label;
+
+        headerRow.appendChild(th);
+
+    });
+
+    thead.appendChild(headerRow);
+
+    table.appendChild(thead);
+
+    // ---------- Body ----------
+
+    const tbody = document.createElement("tbody");
+
+    labels.forEach(actual => {
+
+        const tr = document.createElement("tr");
+
+        const rowHeader = document.createElement("th");
+        rowHeader.textContent = actual;
+
+        tr.appendChild(rowHeader);
+
+        labels.forEach(predicted => {
+
+            const td = document.createElement("td");
+
+            td.textContent =
+                matrix[actual]?.[predicted] ?? 0;
+
+            if (actual === predicted) {
+                td.classList.add("confusion-correct");
+            }
+
+            tr.appendChild(td);
+
+        });
+
+        tbody.appendChild(tr);
+
+    });
+
+    table.appendChild(tbody);
+
 }
+
+const dropdown = document.getElementById(
+    "classification-type-dropdown"
+);
+
+dropdown.addEventListener("change", () => {
+
+    if (!latestPayload || !selectedSensorId) return;
+
+    updateClassificationMetrics(
+        latestPayload[selectedSensorId]
+            .metrics.classification
+    );
+
+});

@@ -867,6 +867,59 @@
     margin-bottom:1.5rem;
 }
 
+.confusion-matrix-container{
+
+    flex:1;
+
+    overflow:auto;
+
+    border:1px solid #e5e7eb;
+
+    border-radius:.75rem;
+
+}
+
+.confusion-matrix-table{
+
+    width:100%;
+
+    border-collapse:collapse;
+
+    text-align:center;
+
+}
+
+.confusion-matrix-table th{
+
+    padding:.75rem;
+
+    background:#f8fafc;
+
+    font-weight:600;
+
+}
+
+.confusion-matrix-table td{
+
+    padding:.9rem;
+
+    border:1px solid #e5e7eb;
+
+    transition:.2s;
+
+}
+
+.confusion-correct {
+    background: #dcfce7;
+    color: #166534;
+    font-weight: 700;
+}
+
+.confusion-matrix-table td,
+.confusion-matrix-table th {
+    text-align: center;
+}
+
 /* general ui stuff */
 
 .analytics-section-divider {

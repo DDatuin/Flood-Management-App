@@ -6,7 +6,7 @@
             <h2 class="analytics-title">MODEL METRICS</h2>
 
             <p class="analytics-subtitle">
-                Performance evaluation of the flood forecasting model.
+                Performance evaluation of the flood forecasting model per sensor location, with regression trends for the last 24-hrs and confusion matrix summary for each classification.
             </p>
         </div>
 
@@ -35,24 +35,6 @@
     <div class="analytics-card-body">
 
         <div id="regression-panel" class="analytics-panel active">
-
-            <div class="metrics-toolbar">
-
-                <label class="analytics-dropdown-label">
-                    Time Range
-                </label>
-
-                <select id="regression-range-dropdown" class="analytics-dropdown">
-
-                    <option>Live Tail (1-hour Window)</option>
-                    <option>Last Hour</option>
-                    <option>Last 4 Hours</option>
-                    <option>Last 12 Hours</option>
-                    <option>Last 24 Hours</option>
-
-                </select>
-
-            </div>
 
             <div class="metrics-summary">
 
@@ -89,46 +71,25 @@
                     Classification Type
                 </label>
 
-                <select id="classification-type-dropdown" class="analytics-dropdown">
+                <select id="classification-type-dropdown"
+                        class="analytics-dropdown">
 
-                    <option>MMDA Flood Category</option>
-                    <option>Pedestrian</option>
-                    <option>Bicycle</option>
-                    <option>Motorcycle</option>
-                    <option>Car</option>
-                    <option>Truck</option>
+                    <option value="mmda">MMDA Flood Category</option>
+                    <option value="pedestrian">Pedestrian</option>
+                    <option value="bicycle">Bicycle</option>
+                    <option value="motorcycle">Motorcycle</option>
+                    <option value="car">Car</option>
+                    <option value="truck">Truck</option>
 
                 </select>
 
             </div>
 
-            <div class="metrics-summary">
+            <div class="confusion-matrix-container">
 
-                <div class="metric-card">
-                    <span class="metric-label">Accuracy</span>
-                    <span class="metric-value">97.1%</span>
-                </div>
-
-                <div class="metric-card">
-                    <span class="metric-label">Precision</span>
-                    <span class="metric-value">96.5%</span>
-                </div>
-
-                <div class="metric-card">
-                    <span class="metric-label">Recall</span>
-                    <span class="metric-value">96.9%</span>
-                </div>
-
-                <div class="metric-card">
-                    <span class="metric-label">F1 Score</span>
-                    <span class="metric-value">96.7%</span>
-                </div>
-
-            </div>
-
-            <div class="metrics-chart">
-
-                <canvas id="confusion-matrix"></canvas>
+                <table id="confusion-matrix-table"
+                    class="confusion-matrix-table">
+                </table>
 
             </div>
 

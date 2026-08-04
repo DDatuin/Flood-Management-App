@@ -31,7 +31,7 @@ def engineer_features_for_weather_api(rainfall_history: deque) -> dict:
 
     return {
         "rainfall_hr1": values[-1] if len(values) >= 1 else 0.0,
-        "rainfall_hr2": sum(values[-2:]) if len(values) >= 2 else 0.0,
+        "rainfall_hr2": sum(values[-2:]) if len(values) >= 2 else sum(values),
         "rainfall_hr12": sum(values[-12:]) if len(values) >= 12 else sum(values),
         "rainfall_hr24": sum(values[-24:]) if len(values) >= 24 else sum(values),
     }

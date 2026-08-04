@@ -563,6 +563,53 @@ def get_web_chart_data_from_supabase(sensor_id="all", time_range="hour"):
             "datasets": []
         }
 
+def get_regression_metrics(sensor_id, hours):
+
+    try:
+        response = (
+            supabase
+            .rpc(
+                "get_regression_metrics",
+                {
+                    "p_sensor_id": sensor_id,
+                    "p_hours": hours
+                }
+            )
+            .execute()
+        )
+
+        return response.data
+
+    except Exception as e:
+        print("SUPABASE] ERROR:")
+        print(f"Type: {type(e).__name__}")
+        print(f"Message: {str(e)}")
+
+def get_classification_metrics(sensor_id):
+
+    try:
+
+        response = (
+            supabase
+            .rpc(
+                "get_classification_metrics",
+                {
+                    "p_sensor_id": sensor_id
+                }
+            )
+            .execute()
+        )
+
+        return response.data
+
+    except Exception as e:
+
+        print("[SUPABASE] ERROR:")
+        print(f"Type: {type(e).__name__}")
+        print(f"Message: {str(e)}")
+
+        return None
+
 def get_vehicle_thresholds_from_supabase():
 
     try:

@@ -1,7 +1,7 @@
 from rest_framework.response import Response
 import math
 
-from api.supabase.utils import get_latest_data_from_supabase, get_latest_overall_analytics_from_supabase, get_specific_sensor_details_from_supabase
+from api.supabase.utils import get_classification_metrics, get_latest_data_from_supabase, get_latest_overall_analytics_from_supabase, get_regression_metrics, get_specific_sensor_details_from_supabase
 from api.util.helpers.evaluator import get_severity
 
 VEHICLE_PASSABLE = {
@@ -39,6 +39,9 @@ def format_latest_sensor_data():
         current = get_severity(row.get("wlvl_now"))
         forecast = get_severity(prediction.get("forecast"))
 
+        classification_metrics = get_classification_metrics(sensor_id)
+        regression_metrics = get_regression_metrics(sensor_id, 24)
+
         result[sensor_id] = {
             #datapoint-specific details
             "datetime": row["timestamp"],
@@ -64,6 +67,25 @@ def format_latest_sensor_data():
             #vehicle-specific flood categories
             "current_severity": current,
             "forecast_severity": forecast,
+
+            #feature details
+            "wlvl_lag_1": row['wlvl_lag_t-1'],
+            "wlvl_lag_2": row['wlvl_lag_t-2'],
+            "wlvl_lag_5": row['wlvl_lag_t-5'],
+            "wlvl_lag_10": row['wlvl_lag_t-10'],
+            "diff_lag_1": row['diff_lag_t-1'],
+            "pct_change_lag_1": row['pct_change_lag_t-1'],
+            "slope_lag_10": row['slope_lag_t-10'],
+            "rainfall_hr1": row['rainfall_hr1'],
+            "rainfall_hr2": row['rainfall_hr2'],
+            "rainfall_hr12": row['rainfall_hr12'],
+            "rainfall_hr24": row['rainfall_hr24'],
+
+            #per-sensor metric analytics
+            "metrics": {
+                "regression": regression_metrics,
+                "classification": classification_metrics
+            }
         }
 
     return result

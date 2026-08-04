@@ -69,12 +69,12 @@ function renderSelectedSensor() {
 
     if (!sensor) return;
 
-    updateAssessment(sensor);
-    // updateFeatureTables(sensor);
-    // updateWeather(sensor);
-    // updateMetrics(sensor);
-    // updateSensorInfo(sensor);
     updateSensorMap(sensor);
+    updateAssessment(sensor);
+    updateFeatureTables(sensor);
+    updateSensorInfo(sensor);
+    updateWeather(sensor);
+    updateMetrics(sensor);
 
 }
 
