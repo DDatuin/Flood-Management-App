@@ -17,14 +17,24 @@ async def latest_sensor_data_event_stream():
         latest = sensor_bus.get_latest()
 
         if latest is not None:
-            yield f"data: {json.dumps(latest)}\n\n"
+            payload = f"data: {json.dumps(latest)}\n\n"
+
+            print(
+                f"[SSE] Initial payload size: {len(payload)} bytes"
+            )
+
+            yield payload
 
         while True:
             event = await queue.get()
 
-            print("[SSE] Sending event to client")
+            payload = f"data: {json.dumps(event)}\n\n"
 
-            yield f"data: {json.dumps(event)}\n\n"
+            print(
+                f"[SSE] Sending event: {len(payload)} bytes"
+            )
+
+            yield payload
     finally:
         sensor_bus.unregister(queue)
 
@@ -37,5 +47,6 @@ async def sensor_stream(request):
 
     response['Cache-Control'] = "no-cache"
     response["X-Accel-Buffering"] = "no"
+    response["Connection"] = "keep-alive"
 
     return response
