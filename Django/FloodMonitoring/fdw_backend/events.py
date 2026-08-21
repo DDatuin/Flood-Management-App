@@ -7,22 +7,19 @@ class SensorEventBus:
         self.clients = set()
         self._latest_payload = None
 
-    async def subscribe(self):
+    def register(self):
         queue = asyncio.Queue()
         self.clients.add(queue)
+        return queue
 
-        try:
-            while True:
-                yield await queue.get()
-                
-        finally:
-            self.clients.remove(queue)
+    def unregister(self, queue):
+        self.clients.discard(queue)
 
     async def publish(self, event):
         print("[SSE] Publishing event")
         self._latest_payload = event
 
-        for queue in self.clients:
+        for queue in list(self.clients):
             await queue.put(event)
 
     def get_latest(self):

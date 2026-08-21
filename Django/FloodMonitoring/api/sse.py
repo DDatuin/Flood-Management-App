@@ -6,13 +6,22 @@ from fdw_backend.events import sensor_bus
 
 async def latest_sensor_data_event_stream():
 
-    latest = sensor_bus.get_latest()
+    queue = sensor_bus.register()
 
-    if latest is not None:
-        yield f"data: {json.dumps(latest)}\n\n"
+    try:
+        print(
+            f"[SSE] Client connected | PID={os.getpid()}"
+        )
+        
+        latest = sensor_bus.get_latest()
 
-    async for event in sensor_bus.subscribe():
-        yield f"data: {json.dumps(event)}\n\n"
+        if latest is not None:
+            yield f"data: {json.dumps(latest)}\n\n"
+
+        async for event in sensor_bus.subscribe():
+            yield f"data: {json.dumps(event)}\n\n"
+    finally:
+        sensor_bus.unregister(queue)
 
 async def sensor_stream(request):
 
