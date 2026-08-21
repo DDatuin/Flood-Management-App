@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 
@@ -7,36 +8,46 @@ from fdw_backend.events import sensor_bus
 
 async def latest_sensor_data_event_stream():
 
-    queue = sensor_bus.register()
+    client_id, queue = sensor_bus.register()
+
+    print(
+        f"[SSE] Client connected | "
+        f"ID={client_id} | "
+        f"PID={os.getpid()}"
+    )
 
     try:
-        print(
-            f"[SSE] Client connected | PID={os.getpid()}"
-        )
-        
+
         latest = sensor_bus.get_latest()
 
-        if latest is not None:
-            payload = f"data: {json.dumps(latest)}\n\n"
-
+        if latest:
             print(
-                f"[SSE] Initial payload size: {len(payload)} bytes"
+                f"[SSE] Initial payload | "
+                f"Client={client_id} | "
+                f"Size={len(latest)} bytes"
             )
 
-            yield payload
+            yield f"data: {latest}\n\n"
 
         while True:
+
             event = await queue.get()
 
-            payload = f"data: {json.dumps(event)}\n\n"
+            yield f"data: {event}\n\n"
 
-            print(
-                f"[SSE] Sending event: {len(payload)} bytes"
-            )
+    except asyncio.CancelledError:
 
-            yield payload
+        print(
+            f"[SSE] Client cancelled | "
+            f"ID={client_id} | "
+            f"PID={os.getpid()}"
+        )
+
+        raise
+
     finally:
-        sensor_bus.unregister(queue)
+
+        sensor_bus.unregister(client_id)
 
 async def sensor_stream(request):
 
