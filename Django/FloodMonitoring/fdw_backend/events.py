@@ -11,10 +11,21 @@ class SensorEventBus:
     def register(self):
         queue = asyncio.Queue()
         self.clients.add(queue)
+
+        print(
+            f"[SSE] Client registered. "
+            f"Clients: {len(self.clients)}"
+        )
+
         return queue
 
     def unregister(self, queue):
         self.clients.discard(queue)
+
+        print(
+            f"[SSE] Client unregistered. "
+            f"Clients: {len(self.clients)}"
+        )
 
     async def publish(self, event):
         print(
