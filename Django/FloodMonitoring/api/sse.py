@@ -27,13 +27,13 @@ async def latest_sensor_data_event_stream():
                 f"Size={len(latest)} bytes"
             )
 
-            yield f"data: {latest}\n\n"
+            yield f"data: {json.dumps(latest)}\n\n"
 
         while True:
 
             event = await queue.get()
 
-            yield f"data: {event}\n\n"
+            yield f"data: {json.dumps(latest)}\n\n"
 
     except asyncio.CancelledError:
 
