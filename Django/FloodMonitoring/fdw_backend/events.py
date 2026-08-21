@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 
 class SensorEventBus:
@@ -16,7 +17,12 @@ class SensorEventBus:
         self.clients.discard(queue)
 
     async def publish(self, event):
-        print("[SSE] Publishing event")
+        print(
+            f"[SSE] Publishing event | "
+            f"PID={os.getpid()} | "
+            f"Clients={len(self.clients)}"
+        )
+        
         self._latest_payload = event
 
         for queue in list(self.clients):
