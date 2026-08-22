@@ -31,9 +31,27 @@ async def latest_sensor_data_event_stream():
 
         while True:
 
-            event = await queue.get()
+            try:
+                event = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=15
+                )
 
-            yield f"data: {json.dumps(latest)}\n\n"
+                print(
+                    f"[SSE] Sending event | "
+                    f"Client={client_id}"
+                )
+
+                yield f"data: {json.dumps(event)}\ns\n"
+
+            except asyncio.TimeoutError:
+
+                print(
+                    f"[SSE] Heartbeat | "
+                    f"Client={client_id}"
+                )
+
+                yield ": heartbeat\n\n"
 
     except asyncio.CancelledError:
 
