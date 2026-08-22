@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:floodmonitoring/services/api_configs.dart';
 import 'package:floodmonitoring/services/global.dart';
 import 'package:floodmonitoring/services/location.dart';
@@ -55,6 +56,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   final Set<Polyline> _polylines = {};
 
   CameraPosition? _lastPosition;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
   /// Direction Sheet
   bool showDirectionSheet = false;
@@ -160,6 +162,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   bool vehicleConfirmed = false;
   bool _isFirstLocationLoad = true;
 
+  Timer? _sseFallbackTimer;
+  DateTime? _lastSseUpdate;
+
   // ========================================
   // INITIALIZATION (initState)
   // ========================================
@@ -172,7 +177,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     //establish a listener
     _sensorUpdates = _sensorService.stream.listen((_) {
       debugPrint("Event Signal Received (Map Page)");
-      _receivedInitialData = true;
+
+      _lastSseUpdate = DateTime.now();
+
       _fallbackTimer?.cancel();
 
       if (!mounted) return;
@@ -180,6 +187,34 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
       setState(() {
         _rebuildSensorMarkers();
       });
+    });
+
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      results,
+    ) async {
+      debugPrint("Connectivity changed: $results");
+
+      if (results.contains(ConnectivityResult.none)) {
+        debugPrint("Network disconnected.");
+        await _sensorService.disconnect();
+        return;
+      }
+
+      debugPrint(
+        "Network available. Current SSE state: "
+        "${_sensorService.isConnected}",
+      );
+
+      if (!mounted) return;
+
+      await _sensorService.reconnect(
+        onConnected: () {
+          debugPrint("Connected to sensor stream.");
+        },
+        onError: (e) {
+          debugPrint("SSE reconnect error: $e");
+        },
+      );
     });
 
     _bootstrap();
@@ -193,6 +228,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     if (pos == null) return;
 
     await _initializeEverything();
+    _startSseFallbackMonitor();
     startLocationUpdates();
   }
 
@@ -200,8 +236,11 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
 
+    _connectivitySubscription?.cancel();
+
     _sensorUpdates.cancel();
     _fallbackTimer?.cancel();
+    _sseFallbackTimer?.cancel();
 
     _sensorService.disconnect();
     _sensorService.dispose();
@@ -227,23 +266,50 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   // STATE / VARIABLES
   // ========================================
 
-  bool _receivedInitialData = false;
   Timer? _fallbackTimer;
+
+  void _startSseFallbackMonitor() {
+    _sseFallbackTimer?.cancel();
+
+    _sseFallbackTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
+      if (!mounted) return;
+
+      final lastUpdate = _lastSseUpdate;
+
+      if (lastUpdate == null) {
+        debugPrint("SSE WATCHDOG: No sensor update received yet.");
+        return;
+      }
+
+      final elapsed = DateTime.now().difference(lastUpdate);
+
+      debugPrint(
+        "SSE WATCHDOG: Last update ${elapsed.inSeconds}s ago | "
+        "connected=${_sensorService.isConnected}",
+      );
+
+      if (elapsed > const Duration(minutes: 6)) {
+        debugPrint("SSE WATCHDOG: SSE appears stale. Reconnecting...");
+
+        await _sensorService.reconnect(
+          onConnected: () {
+            debugPrint("SSE WATCHDOG: Reconnected.");
+          },
+          onError: (e) {
+            debugPrint("SSE WATCHDOG: Reconnect failed: $e");
+          },
+        );
+
+        _lastSseUpdate = DateTime.now();
+      }
+    });
+  }
 
   /// ----- Connect to SSE Stream -----
   void _connectSSE() {
-    _receivedInitialData = false;
     _sensorService.connect(
       onConnected: () {
         debugPrint("Connected to sensor stream.");
-
-        _fallbackTimer = Timer(const Duration(seconds: 3), () async {
-          if (!_receivedInitialData) {
-            debugPrint("SSE Empty, loading initial data using API call...");
-
-            await _sensorService.loadInitialSensors();
-          }
-        });
       },
       onError: (e) {
         debugPrint(e.toString());
@@ -251,10 +317,16 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _resumeConnections() {
-    //this is the function to be call when Lifecycle is paused and needs to be resumed, some built-in listeners do not need to be manually reconnected, custom listeners should be called here
+  Future<void> _resumeConnections() async {
     if (!_sensorService.isConnected) {
-      _connectSSE();
+      await _sensorService.connect(
+        onConnected: () {
+          debugPrint("Connected to sensor stream.");
+        },
+        onError: (e) {
+          debugPrint("SSE error: $e");
+        },
+      );
     }
   }
 
@@ -264,6 +336,10 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
     await _loadIconPaths();
     await _loadMarkerIcon();
     await _loadCurrentLocation();
+
+    debugPrint("BEFORE SSE: loadedIcons=${loadedIcons.keys.toList()}");
+
+    await _sensorService.loadInitialSensors();
 
     _connectSSE();
 
@@ -324,6 +400,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
 
   /// ----- REFRESH SENSOR MARKERS -----
   void _rebuildSensorMarkers() async {
+    debugPrint("REBUILD MARKERS: loadedIcons=${loadedIcons.keys.toList()}");
+
+    debugPrint("sensors being rendered");
     _removeAllSensorMarkers();
 
     setState(() {
