@@ -111,8 +111,6 @@ flutter run
 ```
 flutter build apk --release
 ```
-- Go to your physical device and allow the installation to happen (If the device does not have a copy of the app installed prior)
-
 # Environment Variables (In Django)
 These are the list of environment vartiables in our Django folder. If in the future, you are to handle confidential information (service keys, emails/passwords linked to services, etc.), always put them in the .env file in the Django folder and integrate the service in such a way that the backend server only has access to the environment variables. Some variables are not used anymore, however, NEVER remove them, add "null" if value cannot be provided to these obsolete variables.
 
