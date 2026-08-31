@@ -104,7 +104,12 @@ uv run uvicorn fdw_backend.asgi:application --host 0.0.0.0 --port 8000 (or any p
 flutter run
 ```
 - Go to your physical device and allow the installation to happen (If the device does not have a copy of the app installed prior)
-
+***Creating a Release APK installer***:
+- Open the Django terminal listed earlier in VSCode
+- Open a terminal and run:
+```
+flutter build apk --release
+```
 
 # Environment Variables (In Django)
 These are the list of environment vartiables in our Django folder. If in the future, you are to handle confidential information (service keys, emails/passwords linked to services, etc.), always put them in the .env file in the Django folder and integrate the service in such a way that the backend server only has access to the environment variables. Some variables are not used anymore, however, NEVER remove them, add "null" if value cannot be provided to these obsolete variables.
